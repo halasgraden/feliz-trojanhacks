@@ -1,5 +1,5 @@
 {
-  "name": "@tenant-navigator/routing",
+  "name": "@feliz/routing",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",

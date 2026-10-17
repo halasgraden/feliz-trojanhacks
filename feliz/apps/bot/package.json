@@ -1,5 +1,5 @@
 {
-  "name": "@tenant-navigator/bot",
+  "name": "@feliz/bot",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,9 +9,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tenant-navigator/agent": "*",
-    "@tenant-navigator/db": "*",
-    "@tenant-navigator/rag": "*",
-    "@tenant-navigator/routing": "*"
+    "@feliz/agent": "*",
+    "@feliz/db": "*",
+    "@feliz/rag": "*",
+    "@feliz/routing": "*"
   }
 }

@@ -1,4 +1,4 @@
-# tenant-navigator
+# Feliz (Renter's Resource Guide)
 
 TypeScript monorepo shell for a tenant rights and housing resource navigator. The integration points are placeholders.
 
@@ -34,4 +34,4 @@ npm run typecheck  # check all workspaces
 npm test           # run Vitest
 ```
 
-Workspace packages use the `@tenant-navigator/*` scope and can be imported through npm workspace links as their implementations are added.
+Workspace packages use the `@feliz/*` scope and can be imported through npm workspace links as their implementations are added.

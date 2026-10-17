@@ -1,5 +1,5 @@
 {
-  "name": "tenant-navigator",
+  "name": "feliz",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -11,8 +11,8 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @tenant-navigator/bot",
-    "build": "npm run build -w @tenant-navigator/db -w @tenant-navigator/routing -w @tenant-navigator/rag -w @tenant-navigator/agent -w @tenant-navigator/ingest -w @tenant-navigator/bot",
+    "dev": "npm run dev -w @feliz/bot",
+    "build": "npm run build -w @feliz/db -w @feliz/routing -w @feliz/rag -w @feliz/agent -w @feliz/ingest -w @feliz/bot",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run"
   },

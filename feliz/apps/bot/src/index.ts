@@ -1,1 +1,1 @@
-console.log("tenant-navigator bot placeholder started");
+console.log("feliz bot placeholder started");

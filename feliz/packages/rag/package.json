@@ -1,5 +1,5 @@
 {
-  "name": "@tenant-navigator/rag",
+  "name": "@feliz/rag",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,6 +15,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tenant-navigator/db": "*"
+    "@feliz/db": "*"
   }
 }

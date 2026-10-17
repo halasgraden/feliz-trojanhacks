@@ -1,5 +1,5 @@
 {
-  "name": "@tenant-navigator/ingest",
+  "name": "@feliz/ingest",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -8,6 +8,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tenant-navigator/db": "*"
+    "@feliz/db": "*"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@tenant-navigator/agent",
+  "name": "@feliz/agent",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,8 +15,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@tenant-navigator/db": "*",
-    "@tenant-navigator/rag": "*",
-    "@tenant-navigator/routing": "*"
+    "@feliz/db": "*",
+    "@feliz/rag": "*",
+    "@feliz/routing": "*"
   }
 }
