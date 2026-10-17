@@ -1,0 +1,1 @@
+"""Configuration package for the Feliz webscraper."""
