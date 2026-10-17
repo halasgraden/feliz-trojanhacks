@@ -1,0 +1,20 @@
+{
+  "name": "feliz",
+  "version": "0.1.0",
+  "description": "AI housing dispute navigator for California security-deposit questions.",
+  "private": true,
+  "scripts": {
+    "demo": "node scripts/demo.mjs",
+    "test": "node scripts/demo.mjs",
+    "agent": "node scripts/agent.mjs",
+    "photon": "node scripts/photon.mjs",
+    "beam": "node scripts/photon.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@portel/photon": "^1.37.0"
+  }
+}
