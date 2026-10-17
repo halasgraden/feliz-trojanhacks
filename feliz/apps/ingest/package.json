@@ -1,0 +1,13 @@
+{
+  "name": "@tenant-navigator/ingest",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tenant-navigator/db": "*"
+  }
+}
