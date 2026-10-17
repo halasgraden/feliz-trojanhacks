@@ -1,2 +1,10 @@
-// TODO: Export data access APIs when implemented.
-export {};
+export { getSupabase } from "./client.js";
+export {
+  upsertDocuments,
+  deleteDocumentsBySource,
+  hybridSearch,
+  type DocumentRow,
+  type Jurisdiction,
+  type ScrapedChunk,
+  type SearchRow,
+} from "./documents.js";
