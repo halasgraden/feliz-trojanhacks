@@ -19,7 +19,7 @@ import {
   type Requirement,
 } from "@feliz/routing";
 import { checkUrgency } from "@feliz/routing";
-import { extractFacts, isNo, isYes, proposeField } from "./extract.js";
+import { answersToAsked, extractFacts, isNo, isYes, proposeField } from "./extract.js";
 import type { LanguageModel } from "./gemini.js";
 import { confirmationLine, composeFromChunks, NOT_COVERED, offerFor, presentReply } from "./reply.js";
 import { nextFacts } from "./state.js";
@@ -100,24 +100,19 @@ export async function handleTurn(store: FelizStore, input: TurnInput, deps: Agen
   const urgency = checkUrgency(transcript);
 
   let confirmed: PendingFact[] = [];
+  let usedAsConfirmation = false;
   if (record.pending.length && isYes(text)) {
     confirmed = [...record.pending];
     record.pending = [];
+    usedAsConfirmation = true;
   } else if (record.pending.length && isNo(text)) {
     record.rejected.push(...record.pending.map((item) => ({ field: item.field, sourceId: item.sourceId })));
     record.pending = [];
+    usedAsConfirmation = true;
   }
-  const itemizedShortcut =
-    confirmed.length === 0 && record.pending.length === 0 && record.asked.length === 1 && record.asked[0] === "itemizedStatement"
-      ? isYes(text)
-        ? "yes"
-        : isNo(text)
-          ? "no"
-          : null
-      : null;
 
   record.facts = nextFacts(factsBefore, extractFacts(transcript, today));
-  if (itemizedShortcut) record.facts.itemizedStatement = itemizedShortcut;
+  if (!usedAsConfirmation) record.facts = nextFacts(record.facts, answersToAsked(text, record.asked));
   for (const pending of confirmed) applyPending(record, pending);
 
   record.category = classifyIssue(transcript);
