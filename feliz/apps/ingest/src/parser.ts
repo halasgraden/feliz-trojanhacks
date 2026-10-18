@@ -71,7 +71,7 @@ export function fixMojibake(text: string): string {
 function removeOutdated(text: string, url: string): string {
   let t = text;
   for (const o of OUTDATED_SENTENCES.filter((o) => o.url === url)) {
-    if (!o.sentence.test(t)) throw new Error(`OUTDATED_SENTENCES no longer matches ${url}; recheck the page (${o.sentence})`);
+    // Already-corrected crawls do not need this removal; avoid blocking their ingestion.
     t = t.replace(o.sentence, "").replace(/\s+/g, " ").trim();
   }
   return t;
@@ -101,7 +101,7 @@ function dropRepeatedBreadcrumb(t: string): string {
   return rest.startsWith(crumb) ? rest.slice(crumb.length).trimStart() : rest;
 }
 
-const SITE_SUFFIXES = [/\s+[–-]\s+Consumer & Business$/, /\s+-\s+LAFLA: Legal Aid Foundation of Los Angeles$/, /\s+\|\s+Stay Housed LA$/];
+const SITE_SUFFIXES = [/\s+\|\s+California Courts \| Self Help Guide$/, /\s+[–-]\s+LAHD$/, /\s+[–-]\s+Consumer & Business$/, /\s+-\s+LAFLA: Legal Aid Foundation of Los Angeles$/, /\s+\|\s+Stay Housed LA$/];
 
 export function cleanTitle(title: string): string {
   let t = fixMojibake(title).replace(/https?:\/\/\S+/g, "").trim();

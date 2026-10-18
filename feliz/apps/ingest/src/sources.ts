@@ -15,6 +15,9 @@ export interface PageTags {
   state: string;
   title?: string;
   note?: string;
+  unincorporatedOnly?: boolean;
+  reviewRequired?: boolean;
+  resourceOnly?: boolean;
 }
 
 const LA_COUNTY = { county: "Los Angeles", state: "CA" } as const;
@@ -135,3 +138,54 @@ export const PUBLISHERS: Record<string, string> = {
   "selfhelp.courts.ca.gov": "California Courts Self-Help",
   "leginfo.legislature.ca.gov": "California Legislative Information",
 };
+
+// Explicit inventory from webscraper@73acb59 (52 pages); unknown future URLs still fail closed.
+Object.assign(PAGE_TAGS, {
+  "https://selfhelp.courts.ca.gov/eviction": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-forms": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-index": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-landlord": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-mediation": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-resources": {"state": "CA", "county": null, "city": null, "topics": ["eviction"], "resourceOnly": true},
+  "https://selfhelp.courts.ca.gov/eviction-tenant": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/lose-case": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/lose-case/ask-more-time": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/not-on-lease": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/notice": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/notice-options": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/respond": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/respond-defenses": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/respond-file": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/summons-complaint": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction-tenant/trial": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/eviction/lodgers": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/foreclosures/tenants-rights": {"state": "CA", "county": null, "city": null, "topics": ["eviction"]},
+  "https://selfhelp.courts.ca.gov/guide-security-deposits-california": {"state": "CA", "county": null, "city": null, "topics": ["security_deposit"]},
+  "https://dcba.lacounty.gov/portfolio/before-you-rent/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": []},
+  "https://dcba.lacounty.gov/portfolio/eviction/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["eviction"]},
+  "https://dcba.lacounty.gov/portfolio/holding-deposits/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["security_deposit"]},
+  "https://dcba.lacounty.gov/portfolio/moving-out/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["security_deposit"]},
+  "https://dcba.lacounty.gov/portfolio/rent-increases/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["rent_increase", "eviction"]},
+  "https://dcba.lacounty.gov/portfolio/rental-agreements-and-leases/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": []},
+  "https://dcba.lacounty.gov/portfolio/renters-in-a-foreclosure-3/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["rent_increase", "eviction"]},
+  "https://dcba.lacounty.gov/portfolio/repairing-your-rental-unit/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": [], "unincorporatedOnly": true, "note": "Mixed statewide repairs and unincorporated county cooling rules; require county applicability confirmation."},
+  "https://dcba.lacounty.gov/portfolio/security-deposits-2/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["security_deposit"]},
+  "https://dcba.lacounty.gov/portfolio/utility-shutoffs-and-illegal-lockouts/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["eviction"]},
+  "https://dcba.lacounty.gov/portfolio/written-notices-from-your-landlord/": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["eviction"]},
+  "https://dcba.lacounty.gov/wp-content/uploads/2023/09/Tenant-Protections-Toolkit-Final-9.11.23.pdf": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["eviction"], "reviewRequired": true, "note": "Flattened PDF has no page-level provenance; review currency and restore page references before answering from it."},
+  "https://housing.lacity.gov/renter-protections-2": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["rent_increase", "eviction"]},
+  "https://housing.lacity.gov/residents/eviction-assistance": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["eviction"], "resourceOnly": true},
+  "https://housing.lacity.gov/residents/is-my-rental-unit-subject-to-the-rent-stabilization-ordinance": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["rent_increase", "eviction"]},
+  "https://housing.lacity.gov/residents/just-cause-for-eviction-ordinance-jco": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["eviction"]},
+  "https://housing.lacity.gov/residents/living-in-rental-housing": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": []},
+  "https://housing.lacity.gov/residents/renters": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["rent_increase", "eviction"], "resourceOnly": true},
+  "https://housing.lacity.gov/residents/tenant-anti-harassment": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["eviction"]},
+  "https://housing.lacity.gov/residents/what-is-covered-under-the-rso": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["rent_increase", "eviction"]},
+  "https://housing.lacity.gov/wp-content/uploads/2022/01/Allowable-Rent-Increase-Bulletin-English.pdf": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["eviction"], "reviewRequired": true, "note": "Flattened PDF has no page-level provenance; review currency and restore page references before answering from it."},
+  "https://housing.lacity.gov/wp-content/uploads/2023/06/LA-RENTER-Protections-Notification.pdf": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["eviction"], "reviewRequired": true, "note": "Flattened PDF has no page-level provenance; review currency and restore page references before answering from it."},
+  "https://housing.lacity.gov/wp-content/uploads/2024/11/Legal-Reasons-for-Eviction-English.pdf": {"state": "CA", "county": "Los Angeles", "city": "Los Angeles", "topics": ["eviction"], "reviewRequired": true, "note": "Flattened PDF has no page-level provenance; review currency and restore page references before answering from it."},
+  "https://www.stayhousedla.org/self-help-eviction-defense": {"state": "CA", "county": "Los Angeles", "city": null, "topics": ["eviction"]},
+});
+
+for (const url of ["https://dcba.lacounty.gov/rentstabilizationprogram/", "https://dcba.lacounty.gov/rentregistry/"]) PAGE_TAGS[url].unincorporatedOnly = true;
+for (const url of ["https://lafla.org/who-we-are/locations/", "https://lafla.org/get-help/veterans/", "https://lafla.org/get-help/housing-and-eviction/"]) PAGE_TAGS[url].resourceOnly = true;
