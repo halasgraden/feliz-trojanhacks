@@ -10,6 +10,7 @@ from pipeline import run_pipeline
 
 
 def main() -> None:
+
     parser = argparse.ArgumentParser(
         description="Scrape official housing and legal information."
     )
@@ -60,15 +61,15 @@ def main() -> None:
         format="%(asctime)s | %(levelname)s | %(message)s",
     )
 
-    urls = args.urls if args.urls is not None else DEFAULT_START_URLS
+    urls = args.urls if args.urls is not None else None
 
     documents = run_pipeline(
-        start_urls=urls,
-        output_file=Path(args.output),
-        max_pages=args.max_pages,
-        max_depth=args.max_depth,
-        delay=args.delay,
-    )
+    start_urls=urls,
+    output_file=Path(args.output),
+    max_pages=args.max_pages,
+    max_depth=args.max_depth,
+    delay=args.delay,
+)
 
     print(f"Successfully saved {len(documents)} documents.")
     print(f"Output: {args.output}")
