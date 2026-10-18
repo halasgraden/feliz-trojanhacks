@@ -135,6 +135,13 @@ interface ServiceAccount {
 let account: { path: string; value: ServiceAccount } | undefined;
 let token: { value: Promise<string>; expires: number } | undefined;
 
+/** Access token and project for Vertex calls. Chat uses this; embeddings use the same sign-in. */
+export async function vertexAccessToken(): Promise<{ token: string; projectId: string }> {
+  loadEnv();
+  const account = serviceAccount();
+  return { token: await accessToken(account), projectId: account.project_id };
+}
+
 function serviceAccount(): ServiceAccount {
   const path = process.env.GOOGLE_APPLICATION_CREDENTIALS!;
   if (account?.path !== path) {
