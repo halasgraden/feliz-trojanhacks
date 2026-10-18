@@ -28,7 +28,7 @@ test("filters location, topic, review holds and unincorporated scope before rank
   expect(rankLegalChunks(input, "deposit")).toEqual([]);
 });
 test("semantic matches work without word overlap and foreign-model vectors never score", () => {
-  const rows = rankLegalChunks([chunk("semantic", { body: "Reimbursement for tenancy funds.", title: "Money", heading: "Returns" }), chunk("foreign", { body: "Nothing", title: "Nothing", heading: "Nothing", embeddingModel: "gemini-embedding-001" })], "security deposit", { state: "CA", queryEmbedding: vector(0) });
+  const rows = rankLegalChunks([chunk("semantic", { body: "Reimbursement for tenancy funds.", title: "Money", heading: "Returns" }), chunk("foreign", { body: "Nothing", title: "Nothing", heading: "Nothing", embeddingModel: "Xenova/multilingual-e5-base" })], "security deposit", { state: "CA", queryEmbedding: vector(0) });
   expect(rows.map((c) => c.id)).toEqual(["semantic"]);
 });
 test("citation matching accepts only evidence from the current turn", () => {

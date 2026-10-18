@@ -34,7 +34,7 @@ export function searchScope(facts: CaseFacts, category: string): RetrieveOptions
   };
 }
 
-/** Keep the newest lines. embedQuery already drops everything before the last 512 tokens. */
+/** Keep the newest lines. embedQuery keeps the end when a question exceeds the Gemini token limit. */
 export function retrievalQuery(transcript: string): string {
   const lines = transcript.split("\n").map((line) => line.trim()).filter(Boolean);
   if (lines.length <= 1) return lines[0] ?? "";

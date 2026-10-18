@@ -9,7 +9,7 @@ const envPath = fileURLToPath(new URL("../../../.env", import.meta.url));
 if (existsSync(envPath)) loadEnvFile(envPath);
 
 const runtime = createRuntime();
-console.log(`Feliz agent ready. Model: ${runtime.modelId}. Legal search uses local E5 retrieve().`);
+console.log(`Feliz agent ready. Model: ${runtime.modelId}. Legal search embeds questions with gemini-embedding-001.`);
 
 if (!process.env.SPECTRUM_PROJECT_ID || !process.env.SPECTRUM_PROJECT_SECRET) {
   console.log("Photon is not configured. Set SPECTRUM_PROJECT_ID and SPECTRUM_PROJECT_SECRET in .env to connect.");

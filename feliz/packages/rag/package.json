@@ -15,7 +15,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@feliz/db": "*",
-    "@huggingface/transformers": "3.8.1"
+    "@feliz/db": "*"
   }
 }

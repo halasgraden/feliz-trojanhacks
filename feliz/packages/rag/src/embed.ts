@@ -1,96 +1,105 @@
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { FeatureExtractionPipeline } from "@huggingface/transformers";
+import { fileURLToPath } from "node:url";
 
-/** Never compare these vectors with Gemini vectors, even at the same width. */
-export const EMBEDDING_MODEL = "Xenova/multilingual-e5-base";
+/** Stored on each chunk. Vectors from any other model, including local E5, are not scored. */
+export const EMBEDDING_MODEL = "gemini-embedding-001";
 export const EMBEDDING_DIMENSIONS = 768;
-export const EMBEDDING_MAX_TOKENS = 512;
+/** gemini-embedding-001 accepts 2,048 tokens. Output is truncated to 768 and then normalized. */
+export const EMBEDDING_MAX_TOKENS = 2048;
+const CHARS_PER_TOKEN = 4;
+const MAX_CHARS = EMBEDDING_MAX_TOKENS * CHARS_PER_TOKEN;
+const BATCH = 100;
+
 export type EmbeddingTask = "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
 export interface EmbedOptions {
   onProgress?: (done: number, total: number) => void;
   /** Called when a query was longer than the model accepts and only its end was kept. */
   onTruncate?: (info: { index: number; tokens: number; keptTokens: number }) => void;
 }
-let extractorPromise: Promise<FeatureExtractionPipeline> | undefined;
+
 let work: Promise<unknown> = Promise.resolve();
 
-async function extractor(): Promise<FeatureExtractionPipeline> {
-  if (!extractorPromise) {
-    extractorPromise = (async () => {
-      // Parsing/dry-run and agent imports do not load ONNX or download weights.
-      const { env, pipeline } = await import("@huggingface/transformers");
-      env.cacheDir = process.env.FELIZ_MODEL_CACHE || join(tmpdir(), "feliz-models");
-      env.localModelPath = env.cacheDir;
-      env.allowRemoteModels = process.env.FELIZ_MODEL_OFFLINE !== "1";
-      return pipeline("feature-extraction", EMBEDDING_MODEL, { dtype: "q8", device: "cpu" });
-    })().catch((error) => { extractorPromise = undefined; throw error; });
-  }
-  return extractorPromise;
+export const chunkEmbeddingText = (chunk: { heading: string; body: string }) => `${chunk.heading}\n${chunk.body}`;
+
+/** Gemini selects the retrieval task with taskType, not an E5 text prefix. */
+export const embeddingInput = (text: string, _task: EmbeddingTask) => text.trim();
+
+export function embedDocuments(texts: string[], opts: EmbedOptions = {}): Promise<number[][]> {
+  return embedTexts(texts, "RETRIEVAL_DOCUMENT", opts);
 }
 
-export const chunkEmbeddingText = (chunk: { heading: string; body: string }) => `${chunk.heading}\n${chunk.body}`;
-export const embeddingInput = (text: string, task: EmbeddingTask) => `${task === "RETRIEVAL_QUERY" ? "query" : "passage"}: ${text.trim()}`;
-export function embedDocuments(texts: string[], opts: EmbedOptions = {}): Promise<number[][]> { return embedTexts(texts, "RETRIEVAL_DOCUMENT", opts); }
-export async function embedQuery(query: string, opts: EmbedOptions = {}): Promise<number[]> { const [vector] = await embedTexts([query], "RETRIEVAL_QUERY", opts); return vector; }
+export async function embedQuery(query: string, opts: EmbedOptions = {}): Promise<number[]> {
+  const [vector] = await embedTexts([query], "RETRIEVAL_QUERY", opts);
+  return vector;
+}
 
-/** Local serialized inference. First run downloads public weights; later runs reuse them. */
+/** Serialized Gemini batch calls. A missing key fails this call; retrieve() then uses keywords. */
 export function embedTexts(texts: string[], task: EmbeddingTask, opts: EmbedOptions = {}): Promise<number[][]> {
   if (!texts.length) return Promise.resolve([]);
   if (texts.some((text) => !text.trim())) return Promise.reject(new Error("Cannot embed empty text"));
-  const inputs = texts.map((text) => embeddingInput(text, task));
-  const run = work.then(async () => {
-    const pipe = await extractor();
-    for (const [index, text] of inputs.entries()) {
-      const count = tokenIds(pipe, text).length;
-      if (count <= EMBEDDING_MAX_TOKENS) continue;
-      // The model silently drops everything past its limit. A passage that long is a chunking
-      // bug, so refuse it. A question is usually a conversation whose newest message is at the
-      // end, so keep the end rather than the beginning.
-      if (task !== "RETRIEVAL_QUERY") {
-        throw new Error(`Embedding input ${index} has ${count} tokens, over the ${EMBEDDING_MAX_TOKENS}-token limit; split the passage`);
-      }
-      inputs[index] = keepQueryTail(pipe, texts[index]);
-      opts.onTruncate?.({ index, tokens: count, keptTokens: tokenIds(pipe, inputs[index]).length });
+  const inputs = texts.map((text) => text.trim());
+  for (const [index, text] of inputs.entries()) {
+    if (text.length <= MAX_CHARS) continue;
+    const tokens = Math.ceil(text.length / CHARS_PER_TOKEN);
+    if (task !== "RETRIEVAL_QUERY") {
+      return Promise.reject(new Error(`Embedding input ${index} has about ${tokens} tokens, over the ${EMBEDDING_MAX_TOKENS}-token limit; split the passage`));
     }
-    const vectors: number[][] = [];
-    for (let i = 0; i < inputs.length; i += 4) {
-      const tensor = await pipe(inputs.slice(i, i + 4), { pooling: "mean", normalize: true });
-      const batch = tensor.tolist() as number[][];
-      tensor.dispose();
-      if (batch.length !== Math.min(4, inputs.length - i)) throw new Error("Local embedding batch count mismatch");
-      for (const vector of batch) {
-        const norm = Math.hypot(...vector);
-        if (vector.length !== EMBEDDING_DIMENSIONS || !vector.every(Number.isFinite) || norm < 0.99 || norm > 1.01) throw new Error("Local model returned an invalid 768-dimensional unit vector");
-        vectors.push(vector);
-      }
-      opts.onProgress?.(vectors.length, inputs.length);
-    }
-    return vectors;
-  });
+    inputs[index] = text.slice(-MAX_CHARS);
+    opts.onTruncate?.({ index, tokens, keptTokens: EMBEDDING_MAX_TOKENS });
+  }
+  const run = work.then(() => embedBatch(inputs, task, opts));
   work = run.catch(() => undefined);
   return run;
 }
 
-type Tokenizer = FeatureExtractionPipeline["tokenizer"];
-
-/** Token ids for one text, special tokens included. The tokenizer returns a flat array for a single string. */
-export function tokenIds(pipe: { tokenizer: Tokenizer }, text: string, addSpecialTokens = true): number[] {
-  const ids = pipe.tokenizer(text, { truncation: false, return_tensor: false, add_special_tokens: addSpecialTokens }).input_ids as number[] | number[][];
-  return (Array.isArray(ids[0]) ? ids[0] : ids) as number[];
+async function embedBatch(texts: string[], task: EmbeddingTask, opts: EmbedOptions): Promise<number[][]> {
+  const apiKey = geminiKey();
+  const vectors: number[][] = [];
+  for (let start = 0; start < texts.length; start += BATCH) {
+    const batch = texts.slice(start, start + BATCH);
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        requests: batch.map((text) => ({
+          model: `models/${EMBEDDING_MODEL}`,
+          content: { parts: [{ text }] },
+          taskType: task,
+          outputDimensionality: EMBEDDING_DIMENSIONS,
+        })),
+      }),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: { message?: string };
+      embeddings?: { values?: number[] }[];
+    };
+    if (!response.ok) throw new Error(body.error?.message || `Gemini embedding failed (${response.status}).`);
+    const rows = body.embeddings ?? [];
+    if (rows.length !== batch.length) throw new Error("Gemini embedding batch count mismatch");
+    for (const row of rows) vectors.push(unitVector(row.values));
+    opts.onProgress?.(vectors.length, texts.length);
+  }
+  return vectors;
 }
 
-/** "query: " plus as much of the end of the text as fits within the model's limit. */
-function keepQueryTail(pipe: { tokenizer: Tokenizer }, text: string): string {
-  const prefix = embeddingInput("", "RETRIEVAL_QUERY");
-  let budget = EMBEDDING_MAX_TOKENS - tokenIds(pipe, prefix).length;
-  const body = tokenIds(pipe, text.trim(), false);
-  // Decoding then re-encoding can shift token boundaries slightly, so shrink until it fits.
-  for (;;) {
-    const tail = pipe.tokenizer.decode(body.slice(-budget), { skip_special_tokens: true }).trim();
-    const candidate = `${prefix}${tail}`;
-    if (tokenIds(pipe, candidate).length <= EMBEDDING_MAX_TOKENS) return candidate;
-    budget -= 8;
-    if (budget <= 0) throw new Error("Query cannot be shortened to fit the embedding model");
+function geminiKey(): string {
+  if (!process.env.GEMINI_API_KEY) {
+    try {
+      process.loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
+    } catch {
+      /* the key may already be in the environment */
+    }
   }
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("GEMINI_API_KEY must be set to embed with gemini-embedding-001");
+  return key;
+}
+
+/** gemini-embedding-001 is 3,072-wide. A 768-wide slice must be normalized before cosine similarity. */
+function unitVector(values: number[] | undefined): number[] {
+  if (!values || values.length !== EMBEDDING_DIMENSIONS || !values.every(Number.isFinite)) {
+    throw new Error("Gemini returned an invalid 768-dimensional vector");
+  }
+  const norm = Math.hypot(...values);
+  if (norm === 0) throw new Error("Gemini returned an invalid 768-dimensional vector");
+  return values.map((value) => value / norm);
 }

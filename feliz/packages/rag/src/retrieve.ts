@@ -44,7 +44,11 @@ const TOPIC_EXAMPLES = [
   "Mi casero me subió la renta del apartamento",
   "El dueño no quiere hacer reparaciones en mi vivienda",
 ];
-/** Strong if the question resembles a renter question, or a passage matches it closely. */
+/**
+ * Strong if the question resembles a renter question, or a passage matches it closely.
+ * These cutoffs were measured on multilingual-e5-base. They are not calibrated for
+ * gemini-embedding-001, and a weak score never drops a passage.
+ */
 export const RELEVANCE = { topic: 0.86, passage: 0.845 } as const;
 
 let topicVectors: Promise<number[][]> | undefined;

@@ -54,7 +54,7 @@ export type RetrieveFn = (query: string, options: RetrieveOptions) => Promise<Re
 
 export type AgentDeps = {
   model: LanguageModel;
-  /** Defaults to local E5 retrieve(). Tests can pass a fake. Do not pass a Gemini embedder. */
+  /** Defaults to retrieve(), which embeds the question with gemini-embedding-001. Tests can pass a fake. */
   retrieve?: RetrieveFn;
   now?: string;
 };
