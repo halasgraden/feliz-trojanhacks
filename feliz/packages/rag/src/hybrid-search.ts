@@ -9,13 +9,16 @@ export interface RankedChunk extends LegalChunk { score: number; similarity: num
 const STOP = new Set("the a an is are was were my me i to of in on for and or it this that can do does with from have has landlord tenant rental apartment".split(" "));
 const terms = (s: string) => [...new Set(s.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])].filter((s) => !STOP.has(s));
 
+/** "los angeles ", "Los  Angeles" and "LOS ANGELES" are the same place. */
+const place = (s: string | null | undefined) => (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
 /** Apply before ranking. Unknown location does not authorize local rules. */
 export function chunkApplies(c: LegalChunk, opts: SearchOptions): boolean {
   if (c.reviewRequired || c.resourceOnly) return false;
   if (c.unincorporatedOnly && opts.unincorporated !== true) return false;
-  if (c.state && c.state !== opts.state) return false;
-  if (c.county && c.county !== opts.county) return false;
-  if (c.city && c.city !== opts.city) return false;
+  if (c.state && place(c.state) !== place(opts.state)) return false;
+  if (c.county && place(c.county) !== place(opts.county)) return false;
+  if (c.city && place(c.city) !== place(opts.city)) return false;
   if (opts.topic && c.topics.length && !c.topics.includes(opts.topic)) return false;
   return true;
 }

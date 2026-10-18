@@ -17,3 +17,13 @@ These are retrieval checks, not a comprehensive evaluation of legal accuracy or 
 ## Live shared database verification
 
 Loaded the previously empty team corpus successfully: 52 legal_sources rows and 514 legal_chunks rows. Every stored vector has 768 dimensions and embedding_model Xenova/multilingual-e5-base. Verified database-backed hybrid retrieval returns the Courts/DCBA security-deposit sources; review/resource/unincorporated-only holds were honored. No schema changes or paid model API calls were made. Machine-readable results: .data/supabase-rag-check.json.
+
+## Review fixes (2026-10-18)
+
+- **Long questions:** the 512-token check never ran (the tokenizer returns a flat id array; the code read `ids[0].length`), so the model silently kept only the first 512 tokens. Two long conversations differing only in their last line ("I was locked out" vs. "my cat likes tuna") produced identical embeddings. Fixed: questions keep their end and report `queryTruncated`; oversized passages are refused. The test mock now returns the real flat shape; reintroducing the bug fails 3 tests.
+- **Place names** are compared case- and space-insensitively; previously `"los angeles"` silently dropped all City of Los Angeles passages.
+- **Corpus cache:** live Supabase search measured 4.2 s for the first call and 15 ms for the next.
+- **Embedding failure** now falls back to keyword search with a warning instead of failing the turn.
+- **Relevance (advisory):** no similarity cutoff on passages separated on-topic from off-topic questions (Spanish renter questions scored 0.78-0.79, off-topic English up to 0.81). Similarity to example renter questions does better: held-out 13/15 renter questions `strong`, 11/12 non-housing `weak`. Advisory only.
+- `npm run rag:check` now also verifies: newest message still affects a long query, lowercase city finds City of LA rules, an off-topic question is flagged weak. All 7 checks pass. Unit tests: 30 pass.
+- Live Supabase `retrieve()` (read-only): English deposit question returns the Courts and DCBA 21-day passages first, with valid Source lines; a Spanish eviction-response question returns the right Courts pages but not the 10-day passage in the top 5 (base-model cross-language limit, documented in local-rag.md).

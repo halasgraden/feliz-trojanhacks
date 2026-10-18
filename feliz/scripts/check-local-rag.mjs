@@ -27,6 +27,19 @@ for (const scenario of scenarios) {
   results.push({ query: scenario.query, pass, hits: result.chunks.map((c) => ({ id: c.id, url: c.url, heading: c.heading, score: c.score, similarity: c.similarity, citation: sourceLine(c) })) });
   console.log(`${pass ? "PASS" : "FAIL"} ${scenario.query}\n  ${result.chunks.map((c) => c.url).join("\n  ")}`);
 }
+// Fixes verified against the real model.
+const extra = [];
+const history = Array.from({ length: 40 }, (_, i) => `Message ${i}: my landlord kept my deposit after I moved out.`).join(" ");
+const endA = await retrieve(`${history} Now I am locked out of my apartment.`, { chunks, state: "CA", county: "Los Angeles", city: "Los Angeles" });
+const endB = await retrieve(`${history} My cat likes tuna.`, { chunks, state: "CA", county: "Los Angeles", city: "Los Angeles" });
+extra.push({ check: "long conversation: newest message still affects the search", pass: endA.queryTruncated && endA.topSimilarity !== endB.topSimilarity });
+const lower = await retrieve("Is my unit covered by the rent stabilization ordinance?", { chunks, state: "ca", county: "los angeles", city: "los angeles", topic: "rent_increase" });
+extra.push({ check: "lowercase city still finds City of Los Angeles rules", pass: lower.chunks.some((c) => c.url.includes("housing.lacity.gov")) });
+const offTopic = await retrieve("What is the best pizza place near me?", { chunks, state: "CA", county: "Los Angeles", city: "Los Angeles" });
+extra.push({ check: "off-topic question flagged as a weak match", pass: offTopic.relevance === "weak" });
+for (const e of extra) console.log(`${e.pass ? "PASS" : "FAIL"} ${e.check}`);
+results.push(...extra.map((e) => ({ query: e.check, pass: e.pass, hits: [] })));
+
 const report = { model: EMBEDDING_MODEL, dimensions: 768, corpusSha256: createHash("sha256").update(raw).digest("hex"), pages: docs.length, chunks: chunks.length, reviewHeldChunks: chunks.filter((c) => c.reviewRequired).length, seconds: (Date.now() - started) / 1000, results };
 await writeFile(".data/local-rag-check.json", JSON.stringify(report, null, 2));
 console.log(`Saved .data/legal-chunks.e5.jsonl and .data/local-rag-check.json (${report.seconds}s). No API credits or database writes.`);

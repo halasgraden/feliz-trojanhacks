@@ -19,7 +19,7 @@ npm run rag:query -- "My landlord kept my security deposit"
 
 The scripts perform no Supabase writes. Both files are ignored by Git. Keep a real model run separate from unit tests (`npm test`), which mock inference and database writes. A retrieval hit is a candidate source passage, not validation of a generated legal claim.
 
-By default weights cache under your OS temp directory in `feliz-models`. Set `FELIZ_MODEL_CACHE` to an absolute persistent directory for a deployed service. Once downloaded, `FELIZ_MODEL_OFFLINE=1` prohibits downloading model files. Ensure every teammate/deployment downloads or receives the same cached model before enabling offline mode. The CPU model is loaded once per process and requests are serialized. Queries over 512 tokens fail explicitly: pass the current question plus concise relevant facts, not the whole conversation.
+By default weights cache under your OS temp directory in `feliz-models`. Set `FELIZ_MODEL_CACHE` to an absolute persistent directory for a deployed service. Once downloaded, `FELIZ_MODEL_OFFLINE=1` prohibits downloading model files. Ensure every teammate/deployment downloads or receives the same cached model before enabling offline mode. The CPU model is loaded once per process and requests are serialized. The model reads at most 512 tokens. A longer **question** keeps its **end** (the newest message) and sets `queryTruncated: true`; a longer **passage** is refused, since that means the chunker produced an oversized chunk. Passing the current question plus concise relevant facts still works best.
 
 ## Agent API
 
@@ -34,6 +34,10 @@ const evidence = await retrieve(question, {
 });
 // evidence.chunks: body, heading, URL, publisher, fetch date, IDs, ranking scores.
 // evidence.retrieval: hybrid | lexical; evidence.status: ok | no_evidence.
+// evidence.relevance: strong | weak | unknown  (advisory; see "Relevance" below)
+// evidence.topSimilarity, evidence.topicSimilarity: scores for traces
+// evidence.queryTruncated: the question was cut to its last 512 tokens
+// evidence.warnings: e.g. the model failed to load and keyword search was used instead
 // Give the model only these chunks as legal evidence.
 const context = evidence.chunks.map(c => `${c.body}\n${sourceLine(c)}`).join("\n\n");
 // citationsInReply(finalReply, evidence.chunks) checks exact source-line membership.
@@ -41,7 +45,20 @@ const context = evidence.chunks.map(c => `${c.body}\n${sourceLine(c)}`).join("\n
 
 When connecting an agent built from the earlier `webscraper` contract, replace its Gemini query-embedding call and old `runLegalSearch` ranking call together with `retrieve()` above. Do not compare Gemini query vectors with the E5 corpus, even though both are 768-dimensional. Pass the confirmed state/county/city and category on each search, and preserve the returned chunk IDs and source lines for that turn's citation validation. The old contract's 16-page count, Gemini model, 40-row keyword prefilter and city-only scope describe the earlier design; this implementation uses the committed 52-page corpus and the stricter scope rules below. The GitHub branches currently available contain agent placeholders, so a complete Photon-to-agent conversation has not been exercised here.
 
-For a DB-free demo pass `chunks` parsed from `.data/legal-chunks.e5.jsonl` to `retrieve`. Database retrieval pages through the small shared corpus, joins `legal_sources.metadata.tags`, and ranks locally with keyword/vector reciprocal rank fusion. This intentionally avoids a new Supabase search RPC. If the corpus grows, move candidate search into Postgres while preserving the public contract. The function does not cache DB rows; a production process may maintain a versioned corpus cache.
+### Relevance (advisory)
+
+`relevance` says whether the question reads like a renter's housing question. It is the best of two signals: similarity to nine example renter questions in English and Spanish (`TOPIC_EXAMPLES`, cutoff 0.86) and similarity to the best returned passage (cutoff 0.845). Similarity to legal passages alone could not separate housing from non-housing questions, and scored Spanish questions below off-topic English ones.
+
+Measured with the real model on questions never used to choose the cutoffs: 13/15 renter questions marked `strong` and 11/12 non-housing questions marked `weak`. Misses: "keeping $1200 for repainting" and a Spanish rent-increase question were `weak`; "fired for being sick" was `strong`. Because real renter questions can be `weak`, **never block on it**: passages are always returned. Use `weak` to ask what happened, or to word the answer more cautiously. The agent's own case classification remains the gate for whether to search.
+
+### Behavior notes
+
+- Place names match case- and space-insensitively (`"los angeles"` = `"Los Angeles"`).
+- The corpus loaded from Supabase is cached per process for 5 minutes (`cacheTtlMs`; `0` disables). Call `clearCorpusCache()` after re-running ingest. Measured: first search ~4 s (corpus + model load), cached searches ~15 ms plus query embedding.
+- If the embedding model fails to load, `retrieve()` falls back to keyword search and reports it in `warnings` instead of throwing.
+- Spanish questions find the right pages, but the base model ranks individual English passages less precisely across languages. "How many days do I have to respond to an eviction lawsuit?" returns the 10-day deadline passage at #4, while two Spanish phrasings return the right Courts pages without that passage in the top 5. Options: `Xenova/multilingual-e5-large` (re-embed everything; larger and slower), or translate questions to English before searching.
+
+For a DB-free demo pass `chunks` parsed from `.data/legal-chunks.e5.jsonl` to `retrieve`. Database retrieval pages through the small shared corpus, joins `legal_sources.metadata.tags`, and ranks locally with keyword/vector reciprocal rank fusion. This intentionally avoids a new Supabase search RPC. If the corpus grows, move candidate search into Postgres while preserving the public contract. The function caches DB rows for `cacheTtlMs` (default 5 minutes).
 
 `rankLegalChunks(chunks, query, { queryEmbedding, state, county, city, topic, unincorporated, limit })` is a pure ranking API for an agent/store that already loads chunks. Only current-model vectors participate in semantic scores; old/null vectors can still match lexical terms. `lexicalOnly: true` explicitly selects keyword-only retrieval.
 
