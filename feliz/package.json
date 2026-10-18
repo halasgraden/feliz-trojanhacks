@@ -18,6 +18,8 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-pgvector": "0.0.9",
     "@types/node": "^22.15.30",
     "typescript": "^5.9.3",
     "vitest": "^5.0.5"
