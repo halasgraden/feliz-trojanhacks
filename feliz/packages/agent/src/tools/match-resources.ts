@@ -1,2 +1,1 @@
-// TODO: Match housing resources.
-export {};
+export { matchReferrals } from "@feliz/db";

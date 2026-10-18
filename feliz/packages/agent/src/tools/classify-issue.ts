@@ -1,2 +1,1 @@
-// TODO: Classify tenant issues.
-export {};
+export { classifyIssue } from "@feliz/routing";
