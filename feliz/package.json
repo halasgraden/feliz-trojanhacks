@@ -15,7 +15,9 @@
     "start": "npm run start -w @feliz/bot",
     "build": "npm run build -w @feliz/db -w @feliz/routing -w @feliz/rag -w @feliz/agent -w @feliz/ingest -w @feliz/bot",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "vitest run"
+    "test": "vitest run",
+    "rag:check": "npm run build && node scripts/check-local-rag.mjs",
+    "rag:query": "npm run build && node scripts/query-local-rag.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",

@@ -27,15 +27,22 @@ vi.mock("@feliz/db", async () => {
       for (const [id, c] of store.chunks) if (c.document_id === documentId && !keep.includes(id)) store.chunks.delete(id);
     },
     loadedState: async () => {
-      const m = new Map<string, { contentHash: string; chunkCount: number }>();
+      const m = new Map<string, { contentHash: string; chunkCount: number; embeddingModels: (string | null)[] }>();
       for (const [id, s] of store.sources) {
-        m.set(id, { contentHash: s.content_hash as string, chunkCount: [...store.chunks.values()].filter((c) => c.document_id === id).length });
+        m.set(id, { contentHash: s.content_hash as string, chunkCount: [...store.chunks.values()].filter((c) => c.document_id === id).length, embeddingModels: [...store.chunks.values()].filter((c) => c.document_id === id).map((c) => c.embedding_model as string | null) });
       }
       return m;
     },
   };
 });
 
+const embeddingMock = vi.hoisted(() => ({ calls: 0 }));
+vi.mock("../apps/ingest/src/embed.js", () => ({
+  embedChunks: async (chunks: unknown[]) => {
+    embeddingMock.calls++;
+    return chunks.map(() => Array.from({ length: 768 }, (_, i) => Number(i === 0)));
+  },
+}));
 const { parseJsonl, parseDocument, fixMojibake } = await import("../apps/ingest/src/parser.js");
 const { buildLegalChunks, ingest } = await import("../apps/ingest/src/index.js");
 
@@ -130,6 +137,7 @@ describe("ingest()", () => {
     store.chunks.clear();
     store.sources.clear();
     embedCalls = 0;
+    embeddingMock.calls = 0;
     process.env.GEMINI_API_KEY = "test-key";
     vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
       embedCalls++;
@@ -146,19 +154,31 @@ describe("ingest()", () => {
     expect(store.chunks.size).toBe(chunks.length);
     const rows = [...store.chunks.values()];
     expect(rows.every((c) => typeof c.embedding === "string" && (c.embedding as string).split(",").length === 768)).toBe(true);
-    expect(rows.every((c) => c.embedding_model === "gemini-embedding-001")).toBe(true);
+    expect(rows.every((c) => c.embedding_model === "Xenova/multilingual-e5-base")).toBe(true);
     expect(store.sources.size).toBe(docs.length);
 
-    const calls = embedCalls;
+    const calls = embeddingMock.calls;
     await ingest(FIXTURE);
-    expect(embedCalls).toBe(calls); // nothing re-embedded
+    expect(embeddingMock.calls).toBe(calls); // nothing re-embedded
   });
 
-  test("--no-embed writes chunks without calling Gemini", async () => {
+  test("--no-embed writes chunks without running local inference", async () => {
     await ingest(FIXTURE, { noEmbed: true });
-    expect(embedCalls).toBe(0);
+    expect(embeddingMock.calls).toBe(0);
     expect(store.chunks.size).toBe(chunks.length);
     expect([...store.chunks.values()].every((c) => c.embedding === null && c.embedding_model === null)).toBe(true);
+  });
+
+  test("a normal run replaces null or old-model vectors even when text is unchanged", async () => {
+    await ingest(FIXTURE, { noEmbed: true });
+    expect(embeddingMock.calls).toBe(0);
+    await ingest(FIXTURE);
+    expect(embeddingMock.calls).toBeGreaterThan(0);
+    for (const row of store.chunks.values()) row.embedding_model = "gemini-embedding-001";
+    const previous = embeddingMock.calls;
+    await ingest(FIXTURE);
+    expect(embeddingMock.calls).toBeGreaterThan(previous);
+    expect([...store.chunks.values()].every((c) => c.embedding_model === "Xenova/multilingual-e5-base")).toBe(true);
   });
 
   test("a page that got shorter loses its stale chunks", async () => {

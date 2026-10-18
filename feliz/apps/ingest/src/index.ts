@@ -3,11 +3,13 @@
 //   npm run ingest -w @feliz/ingest                      # load webscraper/data/processed/documents.jsonl
 //   npm run ingest -w @feliz/ingest -- --dry-run         # print chunks; no keys, no writes
 //   npm run ingest -w @feliz/ingest -- --force           # re-embed pages whose text hasn't changed
+//   npm run ingest -w @feliz/ingest -- --output=/path/index.jsonl # local embeddings, no DB
 //   npm run ingest -w @feliz/ingest -- --only=lawhelpca  # just the pages whose URL contains this
-//   npm run ingest -w @feliz/ingest -- --no-embed        # write chunks with null embeddings (no Gemini call);
+//   npm run ingest -w @feliz/ingest -- --no-embed        # write chunks with null embeddings (no inference);
 //                                                        # run again later with --force to add them
 //   npm run ingest -w @feliz/ingest -- /abs/path/documents.jsonl
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   deleteStaleLegalChunks,
@@ -57,12 +59,15 @@ export function buildLegalChunks(doc: ParsedDocument): LegalChunk[] {
     topics: doc.tags.topics,
     embedding: null,
     embeddingModel: null,
+    unincorporatedOnly: doc.tags.unincorporatedOnly,
+    reviewRequired: doc.tags.reviewRequired,
+    resourceOnly: doc.tags.resourceOnly,
   }));
 }
 
 export async function ingest(
   input: string,
-  { dryRun = false, force = false, noEmbed = false, only }: { dryRun?: boolean; force?: boolean; noEmbed?: boolean; only?: string } = {},
+  { dryRun = false, force = false, noEmbed = false, only, output }: { dryRun?: boolean; force?: boolean; noEmbed?: boolean; only?: string; output?: string } = {},
 ) {
   const docs = parseJsonl(await readFile(input, "utf8"))
     .filter((d) => !only || d.source_url.includes(only))
@@ -79,15 +84,17 @@ export async function ingest(
     return;
   }
 
-  const loaded = force ? new Map() : await loadedState(docs.map((d) => d.documentId));
+  const loaded = force || output ? new Map() : await loadedState(docs.map((d) => d.documentId));
   let written = 0;
+  const exported: LegalChunk[] = [];
   for (const { doc, chunks } of byDoc) {
     const prev = loaded.get(doc.documentId);
-    if (prev && prev.contentHash === doc.contentHash && prev.chunkCount === chunks.length) {
+    if (prev && prev.contentHash === doc.contentHash && prev.chunkCount === chunks.length &&
+        (noEmbed || (prev.embeddingModels?.length === chunks.length && prev.embeddingModels.every((m: string | null) => m === EMBEDDING_MODEL)))) {
       console.log(`  unchanged  ${doc.url}`);
       continue;
     }
-    // Embed before writing anything, so a Gemini failure leaves the database untouched.
+    // Embed before writing anything, so a local-model failure leaves this page untouched.
     // Embeddings are optional in the contract; the agent's ranker falls back to words alone.
     if (!noEmbed) {
       const vectors = await embedChunks(chunks);
@@ -96,13 +103,21 @@ export async function ingest(
         c.embeddingModel = EMBEDDING_MODEL;
       });
     }
-    await upsertLegalSources([buildLegalSource(doc)]); // the page row must exist before its chunks
-    await upsertLegalChunks(chunks);
-    await deleteStaleLegalChunks(doc.documentId, chunks.map((c) => c.id));
+    if (output) {
+      exported.push(...chunks);
+    } else {
+      await upsertLegalSources([buildLegalSource(doc)]); // source row before referencing chunks
+      await upsertLegalChunks(chunks);
+      await deleteStaleLegalChunks(doc.documentId, chunks.map((c) => c.id));
+    }
     written += chunks.length;
     console.log(`  loaded ${String(chunks.length).padStart(3)}  ${doc.url}`);
   }
-  console.log(`\nwrote ${written} chunks from ${docs.length} pages`);
+  if (output) {
+    await mkdir(dirname(output), { recursive: true });
+    await writeFile(output, exported.map((c) => JSON.stringify(c)).join("\n") + "\n");
+  }
+  console.log(`\nwrote ${written} chunks from ${docs.length} pages${output ? ` to ${output} (no database writes)` : ""}`);
 }
 
 async function main() {
@@ -113,6 +128,7 @@ async function main() {
     force: args.includes("--force"),
     noEmbed: args.includes("--no-embed"),
     only: args.find((a) => a.startsWith("--only="))?.slice("--only=".length),
+    output: args.find((a) => a.startsWith("--output="))?.slice("--output=".length),
   });
 }
 

@@ -1,47 +1,41 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { chunkEmbeddingText, embedDocuments, embedQuery, EMBEDDING_DIMENSIONS } from "@feliz/rag";
-
-// Fakes the Gemini API, so these run without a GEMINI_API_KEY.
-let requests: { url: string; headers: Record<string, string>; body: any }[];
-
-beforeEach(() => {
-  requests = [];
-  process.env.GEMINI_API_KEY = "test-key";
-  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-    const body = JSON.parse(init.body as string);
-    requests.push({ url, headers: init.headers as Record<string, string>, body });
-    // Unnormalized vectors whose first value identifies the input, to check order.
-    const embeddings = body.requests.map((_: unknown, i: number) => ({
-      values: Array.from({ length: EMBEDDING_DIMENSIONS }, (_, j) => (j === 0 ? 3 + i : j === 1 ? 4 : 0)),
-    }));
-    return new Response(JSON.stringify({ embeddings }), { status: 200 });
-  });
+import { beforeEach, expect, test, vi } from "vitest";
+const mocked = vi.hoisted(() => ({ inputs: [] as string[], loads: 0, options: [] as unknown[], bad: false }));
+vi.mock("@huggingface/transformers", () => ({
+  env: {},
+  pipeline: async (_task: string, model: string, options: unknown) => {
+    mocked.loads++; mocked.options.push(options);
+    expect(model).toBe("Xenova/multilingual-e5-base");
+    const pipe = async (texts: string[], args: unknown) => {
+      expect(args).toEqual({ pooling: "mean", normalize: true });
+      mocked.inputs.push(...texts);
+      return { tolist: () => texts.map(() => Array.from({ length: mocked.bad ? 4 : 768 }, (_, j) => Number(j === 0))), dispose() {} };
+    };
+    pipe.tokenizer = (text: string) => ({ input_ids: [text.split(/\s+/)] });
+    return pipe;
+  },
+}));
+import { embedDocuments, embedQuery, embedTexts, EMBEDDING_DIMENSIONS } from "@feliz/rag";
+beforeEach(() => { mocked.inputs.length = 0; mocked.bad = false; });
+test("local E5 uses passage/query prefixes, 768 unit vectors and one CPU model", async () => {
+  const query = await embedQuery("  security deposit  ");
+  const docs = await embedDocuments(["Return deadline\nReturn the deposit.", "Another passage."]);
+  expect(mocked.inputs).toEqual(["query: security deposit", "passage: Return deadline\nReturn the deposit.", "passage: Another passage."]);
+  expect(query).toHaveLength(EMBEDDING_DIMENSIONS);
+  expect(docs).toHaveLength(2);
+  expect(mocked.loads).toBe(1);
+  expect(mocked.options).toEqual([{ dtype: "q8", device: "cpu" }]);
 });
-
-afterEach(() => vi.unstubAllGlobals());
-
-test("uses gemini-embedding-001 at 768 dims with retrieval task types", async () => {
-  await embedQuery("can my landlord keep my deposit?");
-  await embedDocuments([chunkEmbeddingText({ heading: "Return deadline", body: "21 days" })]);
-  expect(requests[0].url).toContain("gemini-embedding-001:batchEmbedContents");
-  expect(requests[0].headers["x-goog-api-key"]).toBe("test-key");
-  const [q, d] = requests.map((r) => r.body.requests[0]);
-  expect(q).toMatchObject({ taskType: "RETRIEVAL_QUERY", outputDimensionality: 768 });
-  expect(d).toMatchObject({ taskType: "RETRIEVAL_DOCUMENT", content: { parts: [{ text: "Return deadline\n21 days" }] } });
+test("empty batches need no inference; empty strings and overlong queries are rejected", async () => {
+  expect(await embedDocuments([])).toEqual([]);
+  await expect(embedQuery(" ")).rejects.toThrow("empty");
+  await expect(embedQuery("word ".repeat(600))).rejects.toThrow("512 tokens");
 });
-
-test("batches 100 per request, keeps order, and normalizes", async () => {
-  const vectors = await embedDocuments(Array.from({ length: 150 }, (_, i) => `p${i}`));
-  expect(requests.map((r) => r.body.requests.length)).toEqual([100, 50]);
-  expect(vectors).toHaveLength(150);
-  expect(Math.hypot(...vectors[0])).toBeCloseTo(1, 6);
-  expect(vectors[1][0]).toBeGreaterThan(vectors[0][0]); // input order preserved
-});
-
-test("fails loudly on a missing key or wrong dimensions", async () => {
-  delete process.env.GEMINI_API_KEY;
-  await expect(embedQuery("x")).rejects.toThrow("GEMINI_API_KEY");
-  process.env.GEMINI_API_KEY = "k";
-  vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ embeddings: [{ values: [1, 2, 3] }] })));
-  await expect(embedQuery("x")).rejects.toThrow("expected 768-d");
+test("batching reports progress and rejects invalid output, then recovers", async () => {
+  const progress: number[] = [];
+  expect(await embedTexts(Array.from({ length: 10 }, (_, i) => `p${i}`), "RETRIEVAL_DOCUMENT", { onProgress: (n) => progress.push(n) })).toHaveLength(10);
+  expect(progress).toEqual([4, 8, 10]);
+  mocked.bad = true;
+  await expect(embedQuery("hello")).rejects.toThrow("invalid 768");
+  mocked.bad = false;
+  await expect(embedQuery("recovered")).resolves.toHaveLength(768);
 });

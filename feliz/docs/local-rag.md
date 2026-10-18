@@ -1,0 +1,74 @@
+# Local embeddings and RAG handoff
+
+Default embedding model: `Xenova/multilingual-e5-base`, quantized q8 on CPU, mean pooling, normalized 768-dimensional vectors. Document inputs use `passage: heading\nbody`; questions use `query: question`. No Google, Vertex, OpenAI, or Hugging Face API key is used. Weights download on first use; inference runs on the host machine.
+
+## Run the complete local check
+
+From the repository's **feliz/** directory, preferably with Node 24 LTS:
+
+```sh
+npm ci
+npm run rag:check
+npm run rag:query -- "My landlord kept my security deposit"
+```
+
+`rag:check` builds the workspaces, loads the committed 52-page corpus from `webscraper@73acb59`, embeds all passages, and tests English deposit, eviction-response, rent-increase, and Spanish deposit retrieval against real source URLs. It saves:
+
+- `.data/legal-chunks.e5.jsonl`: local corpus with vectors, citation metadata and scope flags.
+- `.data/local-rag-check.json`: corpus hash, model, counts, timings and test results.
+
+The scripts perform no Supabase writes. Both files are ignored by Git. Keep a real model run separate from unit tests (`npm test`), which mock inference and database writes. A retrieval hit is a candidate source passage, not validation of a generated legal claim.
+
+By default weights cache under your OS temp directory in `feliz-models`. Set `FELIZ_MODEL_CACHE` to an absolute persistent directory for a deployed service. Once downloaded, `FELIZ_MODEL_OFFLINE=1` prohibits downloading model files. Ensure every teammate/deployment downloads or receives the same cached model before enabling offline mode. The CPU model is loaded once per process and requests are serialized. Queries over 512 tokens fail explicitly: pass the current question plus concise relevant facts, not the whole conversation.
+
+## Agent API
+
+```ts
+import { retrieve, sourceLine, citationsInReply, embedQuery } from "@feliz/rag";
+
+const evidence = await retrieve(question, {
+  state: "CA",
+  county: "Los Angeles",
+  city: "Los Angeles", // confirmed property location, not inferred from the user's phone
+  topic: "security_deposit",
+});
+// evidence.chunks: body, heading, URL, publisher, fetch date, IDs, ranking scores.
+// evidence.retrieval: hybrid | lexical; evidence.status: ok | no_evidence.
+// Give the model only these chunks as legal evidence.
+const context = evidence.chunks.map(c => `${c.body}\n${sourceLine(c)}`).join("\n\n");
+// citationsInReply(finalReply, evidence.chunks) checks exact source-line membership.
+```
+
+When connecting an agent built from the earlier `webscraper` contract, replace its Gemini query-embedding call and old `runLegalSearch` ranking call together with `retrieve()` above. Do not compare Gemini query vectors with the E5 corpus, even though both are 768-dimensional. Pass the confirmed state/county/city and category on each search, and preserve the returned chunk IDs and source lines for that turn's citation validation. The old contract's 16-page count, Gemini model, 40-row keyword prefilter and city-only scope describe the earlier design; this implementation uses the committed 52-page corpus and the stricter scope rules below. The GitHub branches currently available contain agent placeholders, so a complete Photon-to-agent conversation has not been exercised here.
+
+For a DB-free demo pass `chunks` parsed from `.data/legal-chunks.e5.jsonl` to `retrieve`. Database retrieval pages through the small shared corpus, joins `legal_sources.metadata.tags`, and ranks locally with keyword/vector reciprocal rank fusion. This intentionally avoids a new Supabase search RPC. If the corpus grows, move candidate search into Postgres while preserving the public contract. The function does not cache DB rows; a production process may maintain a versioned corpus cache.
+
+`rankLegalChunks(chunks, query, { queryEmbedding, state, county, city, topic, unincorporated, limit })` is a pure ranking API for an agent/store that already loads chunks. Only current-model vectors participate in semantic scores; old/null vectors can still match lexical terms. `lexicalOnly: true` explicitly selects keyword-only retrieval.
+
+No location means no location-scoped passages. Statewide material is included with `state: "CA"`. County-wide material additionally requires the county, city material the exact city. County ordinances flagged `unincorporatedOnly` additionally require `unincorporated: true`. Older flattened PDFs are imported/embedded but marked `reviewRequired`; they are held out of search until currency and page references are reviewed. Resource-only pages are also held out of legal retrieval. The applicability flags live in source `metadata.tags`; they do not add columns to the team's chunk schema. If a backend supplies preloaded chunks itself, preserve these flags instead of dropping source metadata.
+
+Citation format remains the team's contract:
+
+```text
+Source: PUBLISHER, "TITLE", URL, fetched YYYY-MM-DD. Section: HEADING.
+```
+
+`citationsInReply` verifies citation membership, not semantic support for every legal claim. The agent still needs evidence-grounded generation, missing-fact questions, urgency routing, final-answer validation and per-conversation state. No claim confidence is inferred from an embedding similarity score.
+
+## Upload the shared Supabase corpus
+
+The team's existing `legal_sources` / `legal_chunks` schema and `vector(768)` column are retained. A model switch requires replacing vectors, not altering their width. Supply only `SUPABASE_URL` and backend `SUPABASE_SERVICE_ROLE_KEY` in `feliz/.env`, then:
+
+```sh
+npm run build
+npm run ingest -w @feliz/ingest -- --dry-run
+npm run ingest -w @feliz/ingest -- --force
+```
+
+The loader writes parent source rows before referencing chunks, persists `embedding_model`, and removes stale chunks within a changed document. Null or foreign-model embeddings trigger regeneration even if the text hash is unchanged. `--force` is useful after changing cleaning/tagging rules. For a file export without any DB credentials:
+
+```sh
+npm run ingest -w @feliz/ingest -- --output=/absolute/path/index.jsonl
+```
+
+Do not serve a partly migrated corpus with mixed model vectors as if it were a consistent semantic index. Stop/refresh retrieval while replacing an existing live corpus. Documents removed from a crawl are not automatically deleted; retire them deliberately. Supabase writes are batch operations, not an atomic corpus publication. The chat model is independent and may still need its own provider/credentials; this change completes embeddings/retrieval, not the agent or Photon messaging loop.

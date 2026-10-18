@@ -6,6 +6,7 @@ export {
   upsertLegalChunks,
   deleteStaleLegalChunks,
   loadedState,
+  listLegalChunks,
   type LegalChunk,
   type LegalSource,
   type Topic,

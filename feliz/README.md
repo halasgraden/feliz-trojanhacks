@@ -1,15 +1,15 @@
 # Feliz (Renter's Resource Guide)
 
-TypeScript monorepo shell for a tenant rights and housing resource navigator. Photon Spectrum connects the bot to iMessage; the bot currently echoes text while agent and data integrations remain placeholders.
+TypeScript monorepo for a tenant rights and housing resource navigator. Local multilingual E5 embeddings, corpus ingestion, Supabase data access and retrieval are implemented. Photon Spectrum connects the bot to iMessage and currently echoes text; the agent workflow still needs to connect retrieved evidence to answer generation.
 
 ## Requirements
 
-Node.js 22 or newer and npm.
+Node.js 24 LTS and npm are recommended (Node 22.12+ is also supported by the test runner).
 
 ## Install
 
 ```sh
-npm install
+npm ci
 ```
 
 Copy `.env.example` to `.env` and fill in `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET` from your Photon project settings. The bot loads this file automatically. Photon uses these two credentials for the [stable Spectrum SDK](https://photon.codes/docs/spectrum-ts/getting-started); `PHOTON_API_KEY` is not used by this SDK.
@@ -21,9 +21,9 @@ The bot connects to the iMessage line enabled in your Photon project. On Photon'
 - `apps/bot`: messaging app entry point
 - `apps/ingest`: source ingestion entry point
 - `packages/agent`: agent and tool placeholders
-- `packages/rag`: retrieval placeholders
+- `packages/rag`: local embeddings, scoped hybrid retrieval and source citations
 - `packages/routing`: routing placeholders
-- `packages/db`: data access placeholders
+- `packages/db`: server-side Supabase corpus reads and writes
 - `supabase/`: future migrations and seed data
 - `tests/`: shared tests
 
@@ -43,14 +43,14 @@ Without Photon credentials, `npm run dev` and `npm run start` print a setup remi
 
 ## Legal corpus (`apps/ingest` → Supabase `legal_chunks`)
 
-Follows the contract in `docs/rag-supabase.md` (webscraper branch).
+Follows the [Supabase contract on the webscraper branch](https://github.com/halasgraden/feliz-trojanhacks/blob/webscraper/feliz/docs/rag-supabase.md). See [the local RAG handoff](docs/local-rag.md) for setup and agent integration.
 
-1. Apply `supabase/migrations/20261017000100_legal_chunks.sql` in the Supabase SQL editor.
-2. Set `GEMINI_API_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`.
+1. Use the team's existing `legal_sources` / `legal_chunks` schema with `vector(768)`. No new migration is required for this embedding switch.
+2. Embeddings run locally with multilingual-e5-base (no API key). Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env` only for database upload.
 3. `npm run ingest -w @feliz/ingest -- --dry-run` to review the chunks, then without `--dry-run` to load.
    Reads `apps/ingest/webscraper/data/processed/documents.jsonl` by default; pass a path to use another file.
-   Unchanged pages (same `content_hash`) are skipped; `--force` re-embeds everything.
-   `--no-embed` loads without calling Gemini (embeddings stay null, which the agent's ranker allows);
+   Unchanged pages are skipped only when their content hash, chunk count and embedding model match; `--force` re-embeds everything.
+   `--no-embed` skips local inference (embeddings stay null and retrieval uses lexical matching);
    `--only=<url part>` loads a subset.
 
 What the loader does to each scraped page:
@@ -62,4 +62,19 @@ What the loader does to each scraped page:
   A page with no entry is refused, so a new scrape needs tags before it loads.
 - Drops sentences listed in `OUTDATED_SENTENCES` (e.g. LAFLA's "5 days to answer" an eviction,
   superseded by AB 2347's 10 court days).
-- Embeds `heading\nbody` with `gemini-embedding-001` at 768 dimensions and upserts on `{document_id}_{index}`.
+- Embeds `passage: heading\nbody` locally with `Xenova/multilingual-e5-base` at 768 dimensions and upserts on `{document_id}_{index}`.
+
+## Local RAG: ready for agent integration
+
+See [the local RAG handoff](docs/local-rag.md) for the API and scope/citation rules.
+
+```sh
+npm run build
+npm test
+npm run rag:check  # real local CPU embeddings of all 52 scraped pages, no DB or API keys
+npm run rag:query -- "When must my security deposit be returned?"
+```
+
+The model downloads once and is reused. `retrieve()` returns evidence passages and citations;
+the agent teammate still implements answer generation, urgency, and conversation state.
+Use a short current query, not the full transcript (512-token model limit).
