@@ -1,6 +1,6 @@
 # Feliz (Renter's Resource Guide)
 
-TypeScript monorepo for a tenant rights and housing resource navigator. Gemini embeddings, corpus ingestion, Supabase data access and retrieval are implemented. Photon Spectrum connects the bot to iMessage and currently echoes text; the agent workflow still needs to connect retrieved evidence to answer generation.
+TypeScript monorepo for a tenant rights and housing resource navigator. Gemini embeddings, corpus ingestion, Supabase data access, and retrieval are implemented. The agent asks for missing facts, calls `retrieve()` with the confirmed state, county, city, topic, and unincorporated flag, then checks citations before Photon sends the reply.
 
 ## Requirements
 
@@ -20,11 +20,11 @@ The bot connects to the iMessage line enabled in your Photon project. On Photon'
 
 - `apps/bot`: messaging app entry point
 - `apps/ingest`: source ingestion entry point
-- `packages/agent`: agent and tool placeholders
-- `packages/rag`: local embeddings, scoped hybrid retrieval and source citations
-- `packages/routing`: routing placeholders
-- `packages/db`: server-side Supabase corpus reads and writes
-- `supabase/`: future migrations and seed data
+- `packages/agent`: conversation turn, citation check, and Gemini answer loop
+- `packages/rag`: Gemini embeddings, scoped hybrid retrieval and source citations
+- `packages/routing`: issue category, required facts, and urgency
+- `packages/db`: server-side Supabase corpus reads and writes, plus case storage
+- `supabase/`: corpus and case migration
 - `tests/`: shared tests
 
 ## Development
@@ -39,7 +39,9 @@ npm test           # run Vitest
 
 Workspace packages use the `@feliz/*` scope and can be imported through npm workspace links as their implementations are added.
 
-Without Photon credentials, `npm run dev` and `npm run start` print a setup reminder and exit. With valid credentials and iMessage enabled in the Photon project, the bot initializes iMessage and echoes incoming text messages. Agent logic is not implemented yet. Embeddings use `GEMINI_API_KEY` and `gemini-embedding-001`.
+Without Photon credentials, `npm run dev` and `npm run start` load the agent and print a setup reminder. With valid credentials and iMessage enabled in the Photon project, each text message is one agent turn. Passages and questions are embedded with `gemini-embedding-001`, through a Google Cloud service account (`GOOGLE_APPLICATION_CREDENTIALS`, via Vertex AI) or `GEMINI_API_KEY`. `GEMINI_API_KEY`, when set and funded, also drafts the answer. With neither, search uses keywords only.
+
+Apply `supabase/migrations/20261018000000_corpus_and_cases.sql` before the first ingest. `legal_sources.metadata.tags` must be an object or retrieval holds the page out. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for a shared corpus. Without them the bot keeps cases in memory and has nothing to cite until chunks are inserted.
 
 ## Legal corpus (`apps/ingest` → Supabase `legal_chunks`)
 
@@ -76,6 +78,5 @@ npm run rag:query -- "When must my security deposit be returned?"
 ```
 
 Embeddings need `GOOGLE_APPLICATION_CREDENTIALS` (service account key file path) or `GEMINI_API_KEY`
-in `feliz/.env`; see docs/local-rag.md. `retrieve()` returns evidence passages and citations;
-the agent still implements answer generation, urgency, and conversation state.
-A long question keeps its newest ~2,048 tokens; a short current question works best.
+in `feliz/.env`; see docs/local-rag.md. `retrieve()` returns evidence passages and citations.
+The agent calls it with a short query; a longer question keeps its newest ~2,048 tokens.
