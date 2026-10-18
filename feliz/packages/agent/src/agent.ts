@@ -206,7 +206,7 @@ export async function handleTurn(store: FelizStore, input: TurnInput, deps: Agen
     first,
     urgent: urgency.level === "urgent",
     referrals,
-    offer: /\b(draft|email|letter)\b/i.test(userText)
+    offer: /\b(draft|email|letter)\b/i.test(transcript)
       ? "Want me to change anything in that draft?"
       : offerFor(record.category, record.facts),
   });

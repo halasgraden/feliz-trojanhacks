@@ -10,6 +10,16 @@ export function createRuntime(env: NodeJS.ProcessEnv = process.env): { store: Fe
   return { store, model, modelId: model.id };
 }
 
+/**
+ * Photon also delivers the messages this bot sends, marked direction "outbound" (isFromMe).
+ * Answering those makes the bot reply to its own replies forever, so only inbound text is handled.
+ */
+export function isFromRenter<M extends { content: { type: string } }>(
+  message: M,
+): message is M & { content: Extract<M["content"], { type: "text" }> } {
+  return (message as { direction?: string }).direction !== "outbound" && message.content.type === "text";
+}
+
 export function senderPhone(message: { sender?: { id?: string; address?: string } | null }): string | null {
   const sender = message.sender;
   if (!sender) return null;

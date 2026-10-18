@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { createRuntime, handleIncoming, senderPhone } from "./message-handler.js";
+import { createRuntime, handleIncoming, isFromRenter, senderPhone } from "./message-handler.js";
 import { createPhotonApp } from "./photon.js";
 
 const envPath = fileURLToPath(new URL("../../../.env", import.meta.url));
@@ -25,7 +25,7 @@ if (!process.env.SPECTRUM_PROJECT_ID || !process.env.SPECTRUM_PROJECT_SECRET) {
   });
 
   for await (const [space, message] of app.messages) {
-    if (message.content.type !== "text") continue;
+    if (!isFromRenter(message)) continue; // skip our own replies echoed back, and non-text
     const phone = senderPhone(message);
     if (!phone) {
       await space.send("I can keep a case only when this message has a phone number.");
