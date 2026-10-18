@@ -4,6 +4,8 @@
 //   npm run ingest -w @feliz/ingest -- --dry-run         # print chunks; no keys, no writes
 //   npm run ingest -w @feliz/ingest -- --force           # re-embed pages whose text hasn't changed
 //   npm run ingest -w @feliz/ingest -- --only=lawhelpca  # just the pages whose URL contains this
+//   npm run ingest -w @feliz/ingest -- --no-embed        # write chunks with null embeddings (no Gemini call);
+//                                                        # run again later with --force to add them
 //   npm run ingest -w @feliz/ingest -- /abs/path/documents.jsonl
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -58,7 +60,10 @@ export function buildLegalChunks(doc: ParsedDocument): LegalChunk[] {
   }));
 }
 
-export async function ingest(input: string, { dryRun = false, force = false, only }: { dryRun?: boolean; force?: boolean; only?: string } = {}) {
+export async function ingest(
+  input: string,
+  { dryRun = false, force = false, noEmbed = false, only }: { dryRun?: boolean; force?: boolean; noEmbed?: boolean; only?: string } = {},
+) {
   const docs = parseJsonl(await readFile(input, "utf8"))
     .filter((d) => !only || d.source_url.includes(only))
     .map(parseDocument);
@@ -83,11 +88,14 @@ export async function ingest(input: string, { dryRun = false, force = false, onl
       continue;
     }
     // Embed before writing anything, so a Gemini failure leaves the database untouched.
-    const vectors = await embedChunks(chunks);
-    chunks.forEach((c, i) => {
-      c.embedding = vectors[i];
-      c.embeddingModel = EMBEDDING_MODEL;
-    });
+    // Embeddings are optional in the contract; the agent's ranker falls back to words alone.
+    if (!noEmbed) {
+      const vectors = await embedChunks(chunks);
+      chunks.forEach((c, i) => {
+        c.embedding = vectors[i];
+        c.embeddingModel = EMBEDDING_MODEL;
+      });
+    }
     await upsertLegalSources([buildLegalSource(doc)]); // the page row must exist before its chunks
     await upsertLegalChunks(chunks);
     await deleteStaleLegalChunks(doc.documentId, chunks.map((c) => c.id));
@@ -103,6 +111,7 @@ async function main() {
   await ingest(args.find((a) => !a.startsWith("--")) ?? DEFAULT_INPUT, {
     dryRun: args.includes("--dry-run"),
     force: args.includes("--force"),
+    noEmbed: args.includes("--no-embed"),
     only: args.find((a) => a.startsWith("--only="))?.slice("--only=".length),
   });
 }

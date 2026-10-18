@@ -120,3 +120,18 @@ export const OUTDATED_SENTENCES: { url: string; sentence: RegExp; reason: string
     reason: "AB 2347: 10 court days to respond to an eviction case as of January 1, 2025 (stated on lawhelpca.org/issues/housing).",
   },
 ];
+
+/**
+ * Publisher shown in each Source line, by website. The scraper's source_name is the crawl seed
+ * a page was found from, not who published it (the DCBA disaster page came in as
+ * "LawHelpCA Housing Rights"), so the site decides.
+ */
+export const PUBLISHERS: Record<string, string> = {
+  "dcba.lacounty.gov": "LA County Department of Consumer and Business Affairs",
+  "lafla.org": "Legal Aid Foundation of Los Angeles",
+  "www.lawhelpca.org": "LawHelpCA",
+  "www.stayhousedla.org": "Stay Housed LA",
+  "housing.lacity.gov": "Los Angeles Housing Department",
+  "selfhelp.courts.ca.gov": "California Courts Self-Help",
+  "leginfo.legislature.ca.gov": "California Legislative Information",
+};

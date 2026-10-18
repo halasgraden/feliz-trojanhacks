@@ -110,6 +110,14 @@ describe("accuracy", () => {
     expect(byUrl("locations")[0].body).toContain("9 a.m.–5 p.m.");
   });
 
+  test("publisher comes from the site, not the scraper's crawl-seed label", () => {
+    expect(byUrl("lafla.org").every((c) => c.publisher === "Legal Aid Foundation of Los Angeles")).toBe(true);
+    const raw = parseJsonl(readFileSync(FIXTURE, "utf8")).find((d) => d.source_url.includes("lafla"))!;
+    expect(raw.source_name).toBe("LAFLA Eviction Defense"); // what the scraper wrote
+    const moved = parseDocument({ ...raw, source_name: "LawHelpCA Housing Rights" });
+    expect(moved.publisher).toBe("Legal Aid Foundation of Los Angeles");
+  });
+
   test("an untagged page is refused rather than guessed", () => {
     const doc = parseJsonl(readFileSync(FIXTURE, "utf8"))[0];
     expect(() => parseDocument({ ...doc, source_url: "https://example.com/new-page" })).toThrow("No PAGE_TAGS entry");
@@ -144,6 +152,13 @@ describe("ingest()", () => {
     const calls = embedCalls;
     await ingest(FIXTURE);
     expect(embedCalls).toBe(calls); // nothing re-embedded
+  });
+
+  test("--no-embed writes chunks without calling Gemini", async () => {
+    await ingest(FIXTURE, { noEmbed: true });
+    expect(embedCalls).toBe(0);
+    expect(store.chunks.size).toBe(chunks.length);
+    expect([...store.chunks.values()].every((c) => c.embedding === null && c.embedding_model === null)).toBe(true);
   });
 
   test("a page that got shorter loses its stale chunks", async () => {

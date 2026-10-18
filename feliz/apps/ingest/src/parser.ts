@@ -1,4 +1,4 @@
-import { BOILERPLATE, OUTDATED_SENTENCES, PAGE_TAGS, type PageTags } from "./sources.js";
+import { BOILERPLATE, OUTDATED_SENTENCES, PAGE_TAGS, PUBLISHERS, type PageTags } from "./sources.js";
 
 /** One line of webscraper/data/processed/documents.jsonl (document_schema.py). */
 export interface ScrapedDocument {
@@ -45,7 +45,7 @@ export function parseDocument(doc: ScrapedDocument): ParsedDocument {
   return {
     documentId: doc.document_id,
     url: doc.source_url,
-    publisher: doc.source_name.trim(),
+    publisher: PUBLISHERS[new URL(doc.source_url).host] ?? doc.source_name.trim(),
     title: citationSafe(tags.title ?? cleanTitle(doc.title)),
     fetchedAt: doc.last_fetched_at.slice(0, 10),
     contentHash: doc.content_hash,

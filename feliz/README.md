@@ -50,6 +50,8 @@ Follows the contract in `docs/rag-supabase.md` (webscraper branch).
 3. `npm run ingest -w @feliz/ingest -- --dry-run` to review the chunks, then without `--dry-run` to load.
    Reads `apps/ingest/webscraper/data/processed/documents.jsonl` by default; pass a path to use another file.
    Unchanged pages (same `content_hash`) are skipped; `--force` re-embeds everything.
+   `--no-embed` loads without calling Gemini (embeddings stay null, which the agent's ranker allows);
+   `--only=<url part>` loads a subset.
 
 What the loader does to each scraped page:
 
