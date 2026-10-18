@@ -30,7 +30,7 @@ Loaded the previously empty team corpus successfully: 52 legal_sources rows and 
 
 ## Gemini embeddings via service account (2026-10-18)
 
-- Embeddings switched to `gemini-embedding-001` (768, normalized). Added a Vertex AI service-account route (`GOOGLE_APPLICATION_CREDENTIALS`), since the available Gemini API key had no prepaid credit. Sign-in is shared across concurrent requests (a test caught three parallel sign-ins); 429/5xx are retried.
+- Embeddings switched to `gemini-embedding-001` (768, normalized). The only Gemini credential is a Vertex AI service account (`GOOGLE_APPLICATION_CREDENTIALS`). Sign-in is shared across concurrent requests (a test caught three parallel sign-ins); 429/5xx are retried.
 - Re-ran ingest against the live Supabase corpus: 52 sources, **514 chunks, all `gemini-embedding-001`, all 768-wide unit vectors**, none left from E5. A second run skipped all 52 pages.
 - Keyword matching now uses whole words. Substring matching let Spanish "para"/"una" match "paragraph"/"unable", which dropped the eviction-deadline passage from #2 to #10 for a Spanish question.
 - Live `retrieve()` checks, rule's rank in the top 5: English deposit → 21 days at #1; English eviction response → 10 days at #3; two Spanish eviction-deadline questions → #2 and #1; Spanish deposit → #1.

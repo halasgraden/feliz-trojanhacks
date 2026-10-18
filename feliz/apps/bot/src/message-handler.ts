@@ -6,11 +6,7 @@ export type IncomingReply = UserReply;
 export function createRuntime(env: NodeJS.ProcessEnv = process.env): { store: FelizStore; model: LanguageModel; modelId: string } {
   const store =
     env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY ? createSupabaseCaseStore() : createMemoryStore();
-  const model = env.GEMINI_API_KEY
-    ? new GeminiModel(env.GEMINI_API_KEY)
-    : env.GOOGLE_APPLICATION_CREDENTIALS
-      ? GeminiModel.withServiceAccount()
-      : new GroundedModel();
+  const model = env.GOOGLE_APPLICATION_CREDENTIALS ? new GeminiModel() : new GroundedModel();
   return { store, model, modelId: model.id };
 }
 

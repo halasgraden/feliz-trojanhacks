@@ -177,6 +177,8 @@ test("incoming messages stay on the phone's case", async () => {
 });
 
 test("gemini keeps the function call id and does not send temperature", async () => {
+  const rag = await import("@feliz/rag");
+  const access = vi.spyOn(rag, "vertexAccessToken").mockResolvedValue({ token: "tok", projectId: "demo-project" });
   const bodies: string[] = [];
   const responses = [
     { candidates: [{ content: { parts: [{ functionCall: { name: "search_documents", id: "abc", args: { query: "deposit deadline" } } }] } }] },
@@ -206,11 +208,12 @@ test("gemini keeps the function call id and does not send temperature", async ()
   const turn = await handleTurn(
     store,
     { accountId: account.id, caseId: record.id, message: DEPOSIT_STORY },
-    { model: new GeminiModel("test-key", fetchImpl as typeof fetch), retrieve: fakeRetrieve([DEPOSIT], []), now: NOW },
+    { model: new GeminiModel(fetchImpl as typeof fetch), retrieve: fakeRetrieve([DEPOSIT], []), now: NOW },
   );
   expect(turn.reply).toContain("21 days");
   expect(bodies[0]).not.toContain("temperature");
   expect(bodies[1]).toContain("abc");
+  access.mockRestore();
   const request = buildGenerateRequest("system", []);
   expect(request.generationConfig).not.toHaveProperty("temperature");
 });
@@ -233,7 +236,7 @@ test("service account chat calls Vertex on the global endpoint", async () => {
     queryTruncated: false,
     publicResult: { queries: [], chunks: [] },
   };
-  await GeminiModel.withServiceAccount(fetchImpl as typeof fetch).answer(
+  await new GeminiModel(fetchImpl as typeof fetch).answer(
     { userText: "deposit", searchText: "deposit", facts: {} },
     { search: async () => empty, get: async () => ({ chunk: null }) },
   );

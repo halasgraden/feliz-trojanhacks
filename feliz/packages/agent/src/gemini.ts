@@ -65,19 +65,9 @@ export class GroundedModel implements LanguageModel {
 
 export class GeminiModel implements LanguageModel {
   readonly id = GEMINI_MODEL;
-  private serviceAccount = false;
 
   /** Drafts through Vertex with the service-account JSON. gemini-3.8-flash is on the global endpoint. */
-  static withServiceAccount(fetchImpl: FetchImpl = fetch): GeminiModel {
-    const model = new GeminiModel("", fetchImpl);
-    model.serviceAccount = true;
-    return model;
-  }
-
-  constructor(
-    private apiKey: string,
-    private fetchImpl: FetchImpl = fetch,
-  ) {}
+  constructor(private fetchImpl: FetchImpl = fetch) {}
 
   async answer(input: AnswerInput, tools: ToolExecutor): Promise<AnswerResult> {
     const contents: { role: string; parts: Record<string, unknown>[] }[] = [
@@ -158,15 +148,12 @@ export class GeminiModel implements LanguageModel {
   }
 
   private async generate(contents: { role: string; parts: Record<string, unknown>[] }[]) {
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    let url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-    if (this.serviceAccount) {
-      const access = await vertexAccessToken();
-      url = `https://aiplatform.googleapis.com/v1/projects/${access.projectId}/locations/global/publishers/google/models/${GEMINI_MODEL}:generateContent`;
-      headers.authorization = `Bearer ${access.token}`;
-    } else {
-      headers["x-goog-api-key"] = this.apiKey;
-    }
+    const access = await vertexAccessToken();
+    const url = `https://aiplatform.googleapis.com/v1/projects/${access.projectId}/locations/global/publishers/google/models/${GEMINI_MODEL}:generateContent`;
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      authorization: `Bearer ${access.token}`,
+    };
     const response = await this.fetchImpl(url, {
       method: "POST",
       headers,

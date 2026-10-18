@@ -39,7 +39,7 @@ npm test           # run Vitest
 
 Workspace packages use the `@feliz/*` scope and can be imported through npm workspace links as their implementations are added.
 
-Without Photon credentials, `npm run dev` and `npm run start` load the agent and print a setup reminder. With valid credentials and iMessage enabled in the Photon project, each text message is one agent turn. Passages and questions are embedded with `gemini-embedding-001`, through a Google Cloud service account (`GOOGLE_APPLICATION_CREDENTIALS`, via Vertex AI) or `GEMINI_API_KEY`. `GEMINI_API_KEY`, when set and funded, also drafts the answer. With neither, search uses keywords only.
+Without Photon credentials, `npm run dev` and `npm run start` load the agent and print a setup reminder. With valid credentials and iMessage enabled in the Photon project, each text message is one agent turn. `GOOGLE_APPLICATION_CREDENTIALS` points at a Google Cloud service-account JSON. Vertex uses that file to embed passages and questions with `gemini-embedding-001` and to draft the reply. Leave it unset and search uses keywords only.
 
 Apply `supabase/migrations/20261018000000_corpus_and_cases.sql` before the first ingest. `legal_sources.metadata.tags` must be an object or retrieval holds the page out. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for a shared corpus. Without them the bot keeps cases in memory and has nothing to cite until chunks are inserted.
 
@@ -48,7 +48,7 @@ Apply `supabase/migrations/20261018000000_corpus_and_cases.sql` before the first
 Follows the [Supabase contract on the webscraper branch](https://github.com/halasgraden/feliz-trojanhacks/blob/webscraper/feliz/docs/rag-supabase.md). See [the local RAG handoff](docs/local-rag.md) for setup and agent integration.
 
 1. Use the team's existing `legal_sources` / `legal_chunks` schema with `vector(768)`. No new migration is required for this embedding switch.
-2. Embeddings use `gemini-embedding-001` (`GEMINI_API_KEY`). Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env` for database upload.
+2. Embeddings use `gemini-embedding-001` through the service account in `GOOGLE_APPLICATION_CREDENTIALS`. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env` for database upload.
 3. `npm run ingest -w @feliz/ingest -- --dry-run` to review the chunks, then without `--dry-run` to load.
    Reads `apps/ingest/webscraper/data/processed/documents.jsonl` by default; pass a path to use another file.
    Unchanged pages are skipped only when their content hash, chunk count and embedding model match; `--force` re-embeds everything.
@@ -77,6 +77,6 @@ npm run rag:check  # real Gemini embeddings of all 52 scraped pages (needs crede
 npm run rag:query -- "When must my security deposit be returned?"
 ```
 
-Embeddings need `GOOGLE_APPLICATION_CREDENTIALS` (service account key file path) or `GEMINI_API_KEY`
+Embeddings need `GOOGLE_APPLICATION_CREDENTIALS` (service account key file path)
 in `feliz/.env`; see docs/local-rag.md. `retrieve()` returns evidence passages and citations.
 The agent calls it with a short query; a longer question keeps its newest ~2,048 tokens.
