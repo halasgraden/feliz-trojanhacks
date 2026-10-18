@@ -110,6 +110,35 @@ test("a complete Los Angeles deposit searches with scope and keeps a weak match"
   expect(JSON.stringify(turn)).not.toContain("legalSearches");
 });
 
+test("a short answer to both deposit questions is kept", async () => {
+  const store = createMemoryStore();
+  await store.insertLegalChunk(DEPOSIT);
+  const account = await store.upsertAccount("+13105550105");
+  const record = await store.createCase(account.id);
+  const first = await handleTurn(
+    store,
+    {
+      accountId: account.id,
+      caseId: record.id,
+      message: "My landlord kept my security deposit. I moved out September 1, 2026. The apartment is in Los Angeles.",
+    },
+    { model: new GroundedModel(), retrieve: fakeRetrieve([DEPOSIT], []), now: NOW },
+  );
+  expect(first.reply).toContain("Did they send a written list of what they kept from the deposit, and why?");
+  expect(first.reply).toContain("How much of the deposit are they still holding?");
+  const second = await handleTurn(
+    store,
+    { accountId: account.id, caseId: record.id, message: "No, $800" },
+    { model: new GroundedModel(), retrieve: fakeRetrieve([DEPOSIT], []), now: NOW },
+  );
+  const saved = await store.getCase(record.id, account.id);
+  expect(saved?.facts.itemizedStatement).toBe("no");
+  expect(saved?.facts.amountWithheld).toBe(800);
+  expect(second.reply).not.toContain("Did they send a written list of what they kept from the deposit, and why?");
+  expect(second.reply).not.toContain("How much of the deposit are they still holding?");
+  expect(second.reply).toContain("21 days");
+});
+
 test("an unincorporated renter can see a county-only page", async () => {
   const store = createMemoryStore();
   await store.insertLegalChunk(COUNTY_ONLY);

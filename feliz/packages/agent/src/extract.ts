@@ -56,6 +56,62 @@ export function isNo(text: string): boolean {
   return /^(no|nope|not yet|incorrect)\b/i.test(text.trim());
 }
 
+/** Read a reply to questions already asked. Narrative extraction misses "No" and "$800". */
+export function answersToAsked(message: string, asked: readonly string[]): CaseFacts {
+  const facts: CaseFacts = {};
+  const fields = new Set(asked);
+  if (fields.has("itemizedStatement")) {
+    const itemized = readItemizedAnswer(message);
+    if (itemized) facts.itemizedStatement = itemized;
+  }
+  if (fields.has("amountWithheld")) {
+    const amount = readAmountAnswer(message);
+    if (amount != null) facts.amountWithheld = amount;
+  }
+  return facts;
+}
+
+function readItemizedAnswer(message: string): "yes" | "no" | null {
+  if (isYes(message)) return "yes";
+  if (isNo(message)) return "no";
+  if (
+    /\b(no itemized|never (?:sent|got|received)|didn'?t (?:send|give|get|provide)|did not (?:send|give|get|provide)|without an itemized|no list)\b/i.test(
+      message,
+    )
+  ) {
+    return "no";
+  }
+  if (/\b(gave me an itemized|sent an itemized|received an itemized|got an itemized|they did)\b/i.test(message)) {
+    return "yes";
+  }
+  return null;
+}
+
+function readAmountAnswer(message: string): number | null {
+  if (/^\s*(nothing|none|zero)\s*\.?\s*$/i.test(message)) return 0;
+  const dollar = message.match(/\$\s*(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,2})?/);
+  if (dollar) return parseMoney(dollar[1]);
+  const words = message.match(/\b(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,2})?\s*dollars?\b/i);
+  if (words) return parseMoney(words[1]);
+  const labeled = message.match(
+    /\b(?:kept|withheld|withholding|holding|held|took|deducted)\s+(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,2})?\b/i,
+  );
+  if (labeled) return parseMoney(labeled[1]);
+  const bare = message.trim().match(/^(?:about|around|roughly|like)?\s*(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,2})?\s*\.?\s*$/i);
+  if (bare) return parseMoney(bare[1]);
+  const afterYesNo = message
+    .trim()
+    .match(/^(?:no|nope|not yet|yes|yeah|yep)\b\s*[,.]?\s*(?:about|around|roughly)?\s*(\d{1,3}(?:,\d{3})*|\d+)(?:\.\d{1,2})?\b/i);
+  if (!afterYesNo) return null;
+  const amount = parseMoney(afterYesNo[1]);
+  if (amount >= 1900 && amount <= 2099) return null;
+  return amount;
+}
+
+function parseMoney(value: string): number {
+  return Number(value.replace(/,/g, ""));
+}
+
 function latestKnownCity(message: string): string | null {
   const lower = message.toLowerCase();
   let found: { city: string; index: number } | null = null;
