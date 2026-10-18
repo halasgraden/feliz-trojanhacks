@@ -1,10 +1,9 @@
 export { getSupabase } from "./client.js";
 export {
-  upsertDocuments,
-  deleteDocumentsBySource,
-  hybridSearch,
-  type DocumentRow,
-  type Jurisdiction,
-  type ScrapedChunk,
-  type SearchRow,
+  upsertLegalChunks,
+  deleteStaleLegalChunks,
+  loadedContentHashes,
+  recordLoadedDocument,
+  type LegalChunk,
+  type Topic,
 } from "./documents.js";

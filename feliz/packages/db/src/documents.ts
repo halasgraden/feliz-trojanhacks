@@ -1,65 +1,86 @@
 import { getSupabase } from "./client.js";
 
-export type Jurisdiction = "city_of_la" | "la_county" | "california";
+export type Topic = "security_deposit" | "eviction" | "rent_increase";
 
-/**
- * One line of the scraper's chunks.jsonl. This is the contract between
- * scraping and RAG: the scraper writes these, ingest embeds and stores them.
- */
-export interface ScrapedChunk {
-  id: string;
-  source: string;
-  source_name: string;
+/** One row of legal_chunks, with the TypeScript names from docs/rag-supabase.md. */
+export interface LegalChunk {
+  id: string; // "{documentId}_{index}"
+  documentId: string;
+  publisher: string;
+  title: string;
   url: string;
-  title?: string | null;
-  text: string;
+  fetchedAt: string; // YYYY-MM-DD
+  heading: string;
+  body: string;
+  state: string | null;
+  county: string | null;
+  city: string | null; // null = every city
+  topics: Topic[]; // empty = every category
+  embedding: number[] | null;
 }
 
-export interface DocumentRow {
-  id: string;
-  source: string;
-  source_name: string;
+const toRow = (c: LegalChunk) => ({
+  id: c.id,
+  document_id: c.documentId,
+  publisher: c.publisher,
+  title: c.title,
+  url: c.url,
+  fetched_at: c.fetchedAt,
+  heading: c.heading,
+  body: c.body,
+  state: c.state,
+  county: c.county,
+  city: c.city,
+  topics: c.topics,
+  // pgvector literal string, as insertLegalChunk writes it
+  embedding: c.embedding ? `[${c.embedding.join(",")}]` : null,
+});
+
+const BATCH = 100; // ~100 rows of 768-d vectors stays well under the request size limit
+
+export async function upsertLegalChunks(chunks: LegalChunk[]): Promise<void> {
+  for (let i = 0; i < chunks.length; i += BATCH) {
+    const { error } = await getSupabase()
+      .from("legal_chunks")
+      .upsert(chunks.slice(i, i + BATCH).map(toRow), { onConflict: "id" });
+    if (error) throw new Error(`upsertLegalChunks: ${error.message}`);
+  }
+}
+
+/** Remove a page's chunks that are no longer produced, e.g. after the page got shorter. */
+export async function deleteStaleLegalChunks(documentId: string, keepIds: string[]): Promise<void> {
+  let query = getSupabase().from("legal_chunks").delete().eq("document_id", documentId);
+  if (keepIds.length) query = query.not("id", "in", `(${keepIds.join(",")})`);
+  const { error } = await query;
+  if (error) throw new Error(`deleteStaleLegalChunks: ${error.message}`);
+}
+
+/** content_hash last loaded for each document, to skip pages whose text hasn't changed. */
+export async function loadedContentHashes(documentIds: string[]): Promise<Map<string, string>> {
+  if (!documentIds.length) return new Map();
+  const { data, error } = await getSupabase()
+    .from("legal_documents")
+    .select("document_id, content_hash")
+    .in("document_id", documentIds);
+  if (error) throw new Error(`loadedContentHashes: ${error.message}`);
+  return new Map((data ?? []).map((r) => [r.document_id as string, r.content_hash as string]));
+}
+
+export async function recordLoadedDocument(doc: {
+  documentId: string;
   url: string;
-  title: string | null;
-  content: string;
-  jurisdictions: Jurisdiction[];
-  authority: number;
-  embedding: number[];
-}
-
-export interface SearchRow extends Omit<DocumentRow, "embedding"> {
-  similarity: number | null;
-  score: number;
-}
-
-export async function upsertDocuments(rows: DocumentRow[]): Promise<void> {
-  const { error } = await getSupabase()
-    .from("rag_documents")
-    .upsert(
-      rows.map((r) => ({ ...r, embedding: JSON.stringify(r.embedding), updated_at: new Date().toISOString() })),
-      { onConflict: "id" },
-    );
-  if (error) throw new Error(`upsertDocuments: ${error.message}`);
-}
-
-/** Remove every passage from these sources, so pages dropped by a re-scrape disappear. */
-export async function deleteDocumentsBySource(sources: string[]): Promise<void> {
-  const { error } = await getSupabase().from("rag_documents").delete().in("source", sources);
-  if (error) throw new Error(`deleteDocumentsBySource: ${error.message}`);
-}
-
-export async function hybridSearch(params: {
-  queryText: string;
-  queryEmbedding: number[];
-  matchCount: number;
-  jurisdictions: Jurisdiction[] | null;
-}): Promise<SearchRow[]> {
-  const { data, error } = await getSupabase().rpc("hybrid_search", {
-    query_text: params.queryText,
-    query_embedding: JSON.stringify(params.queryEmbedding),
-    match_count: params.matchCount,
-    filter_jurisdictions: params.jurisdictions,
-  });
-  if (error) throw new Error(`hybrid_search: ${error.message}`);
-  return data as SearchRow[];
+  contentHash: string;
+  chunkCount: number;
+}): Promise<void> {
+  const { error } = await getSupabase().from("legal_documents").upsert(
+    {
+      document_id: doc.documentId,
+      url: doc.url,
+      content_hash: doc.contentHash,
+      chunk_count: doc.chunkCount,
+      loaded_at: new Date().toISOString(),
+    },
+    { onConflict: "document_id" },
+  );
+  if (error) throw new Error(`recordLoadedDocument: ${error.message}`);
 }

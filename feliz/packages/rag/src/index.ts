@@ -1,5 +1,12 @@
-export { retrieve, selectPassages, CONFIDENCE_THRESHOLDS } from "./retrieve.js";
-export type { Passage, RetrieveOptions, RetrieveResult } from "./retrieve.js";
-export { hybridSearch } from "./hybrid-search.js";
-export { formatContext, citationsFor, usedCitations, type Citation } from "./citations.js";
-export { embedQuery, embedDocuments, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, type DocumentInput } from "./embed.js";
+// Retrieval (rankLegalChunks, runLegalSearch) and citations (sourceLine) belong to the
+// agent side; see docs/rag-supabase.md. This package currently provides the embeddings.
+export {
+  embedDocuments,
+  embedQuery,
+  embedTexts,
+  chunkEmbeddingText,
+  EMBEDDING_MODEL,
+  EMBEDDING_DIMENSIONS,
+  type EmbeddingTask,
+  type EmbedOptions,
+} from "./embed.js";

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { embedDocuments, embedQuery, EMBEDDING_DIMENSIONS } from "@feliz/rag";
+import { chunkEmbeddingText, embedDocuments, embedQuery, EMBEDDING_DIMENSIONS } from "@feliz/rag";
 
 // Fakes the Gemini API, so these run without a GEMINI_API_KEY.
 let requests: { url: string; headers: Record<string, string>; body: any }[];
@@ -20,22 +20,18 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-test("queries and documents use Gemini's retrieval prefixes", async () => {
+test("uses gemini-embedding-001 at 768 dims with retrieval task types", async () => {
   await embedQuery("can my landlord keep my deposit?");
-  await embedDocuments([{ title: "Security deposits", text: "21 days" }, { text: "no title here" }]);
-  const texts = requests.flatMap((r) => r.body.requests.map((x: any) => x.content.parts[0].text));
-  expect(texts).toEqual([
-    "task: search result | query: can my landlord keep my deposit?",
-    "title: Security deposits | text: 21 days",
-    "title: none | text: no title here",
-  ]);
-  expect(requests[0].url).toContain("gemini-embedding-2:batchEmbedContents");
+  await embedDocuments([chunkEmbeddingText({ heading: "Return deadline", body: "21 days" })]);
+  expect(requests[0].url).toContain("gemini-embedding-001:batchEmbedContents");
   expect(requests[0].headers["x-goog-api-key"]).toBe("test-key");
-  expect(requests[0].body.requests[0].outputDimensionality).toBe(1536);
+  const [q, d] = requests.map((r) => r.body.requests[0]);
+  expect(q).toMatchObject({ taskType: "RETRIEVAL_QUERY", outputDimensionality: 768 });
+  expect(d).toMatchObject({ taskType: "RETRIEVAL_DOCUMENT", content: { parts: [{ text: "Return deadline\n21 days" }] } });
 });
 
 test("batches 100 per request, keeps order, and normalizes", async () => {
-  const vectors = await embedDocuments(Array.from({ length: 150 }, (_, i) => ({ text: `p${i}` })));
+  const vectors = await embedDocuments(Array.from({ length: 150 }, (_, i) => `p${i}`));
   expect(requests.map((r) => r.body.requests.length)).toEqual([100, 50]);
   expect(vectors).toHaveLength(150);
   expect(Math.hypot(...vectors[0])).toBeCloseTo(1, 6);
@@ -47,5 +43,5 @@ test("fails loudly on a missing key or wrong dimensions", async () => {
   await expect(embedQuery("x")).rejects.toThrow("GEMINI_API_KEY");
   process.env.GEMINI_API_KEY = "k";
   vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ embeddings: [{ values: [1, 2, 3] }] })));
-  await expect(embedQuery("x")).rejects.toThrow("expected 1536-d");
+  await expect(embedQuery("x")).rejects.toThrow("expected 768-d");
 });

@@ -1,31 +1,32 @@
-// Gemini embeddings (multilingual, 100+ languages).
-// Queries and documents are embedded with different task prefixes; mixing them up hurts retrieval.
-// Changing the model or dimensions means re-embedding everything and matching vector(N) in the migration.
-export const EMBEDDING_MODEL = "gemini-embedding-2";
-export const EMBEDDING_DIMENSIONS = 1536; // must match vector(1536); pgvector's HNSW index caps at 2000
+// Gemini embeddings for the legal corpus, per docs/rag-supabase.md.
+// Changing the model or dimensions means re-embedding every chunk and matching vector(768).
+export const EMBEDDING_MODEL = "gemini-embedding-001";
+export const EMBEDDING_DIMENSIONS = 768;
 
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`;
 const MAX_BATCH = 100;
 
-export interface DocumentInput {
-  title?: string | null;
-  text: string;
+export type EmbeddingTask = "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
+
+export interface EmbedOptions {
+  /** Defaults to GEMINI_API_KEY. */
+  apiKey?: string;
 }
 
-export const queryPrefix = (q: string) => `task: search result | query: ${q}`;
-export const documentPrefix = (d: DocumentInput) => `title: ${d.title?.trim() || "none"} | text: ${d.text}`;
+/** The exact string a chunk is embedded from. */
+export const chunkEmbeddingText = (chunk: { heading: string; body: string }) => `${chunk.heading}\n${chunk.body}`;
 
-export async function embedQuery(question: string): Promise<number[]> {
-  const [v] = await embedTexts([queryPrefix(question)]);
+export function embedDocuments(texts: string[], opts: EmbedOptions = {}): Promise<number[][]> {
+  return embedTexts(texts, "RETRIEVAL_DOCUMENT", opts);
+}
+
+export async function embedQuery(query: string, opts: EmbedOptions = {}): Promise<number[]> {
+  const [v] = await embedTexts([query], "RETRIEVAL_QUERY", opts);
   return v;
 }
 
-export async function embedDocuments(docs: DocumentInput[]): Promise<number[][]> {
-  return embedTexts(docs.map(documentPrefix));
-}
-
-async function embedTexts(texts: string[]): Promise<number[][]> {
-  const key = process.env.GEMINI_API_KEY;
+export async function embedTexts(texts: string[], taskType: EmbeddingTask, opts: EmbedOptions = {}): Promise<number[][]> {
+  const key = opts.apiKey ?? process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not set (see .env.example)");
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += MAX_BATCH) {
@@ -36,6 +37,7 @@ async function embedTexts(texts: string[]): Promise<number[][]> {
         requests: texts.slice(i, i + MAX_BATCH).map((text) => ({
           model: `models/${EMBEDDING_MODEL}`,
           content: { parts: [{ text }] },
+          taskType,
           outputDimensionality: EMBEDDING_DIMENSIONS,
         })),
       }),
@@ -52,7 +54,8 @@ async function embedTexts(texts: string[]): Promise<number[][]> {
   return out;
 }
 
-// gemini-embedding-2 already normalizes truncated vectors; this keeps it safe if the model changes.
+// gemini-embedding-001 only returns unit vectors at its full 3072 dimensions;
+// truncated outputs must be normalized for cosine scores to mean anything.
 function normalize(v: number[]): number[] {
   const norm = Math.hypot(...v) || 1;
   return v.map((x) => x / norm);
