@@ -51,16 +51,16 @@ export function missingRequirements(category: Category, facts: FactSnapshot): Re
 export function questionFor(field: Requirement): string {
   switch (field) {
     case "whatHappened":
-      return "What happened with the landlord? A security deposit, an eviction notice, or a rent increase leads to different next steps.";
+      return "What happened with your landlord? A deposit they kept, an eviction notice, or a rent increase each lead somewhere different.";
     case "city":
-      return "Which city is the rental in? If it is outside any city, say unincorporated Los Angeles County.";
+      return "Which city is the apartment in? If it's outside any city, in Los Angeles County, just say that.";
     case "moveOutDate":
-      return "What date did you move out and return the unit?";
+      return "What day did you move out?";
     case "itemizedStatement":
-      return "Did the landlord give you a written itemized list of deductions?";
+      return "Did they send a written list of what they kept from the deposit, and why?";
     case "amountWithheld":
-      return "How much of the deposit is still being held?";
+      return "How much of the deposit are they still holding?";
     case "noticeDate":
-      return "What is the date on the notice?";
+      return "What date is on the notice?";
   }
 }

@@ -71,8 +71,9 @@ test("a deposit without a city asks and does not search", async () => {
     { model: new GroundedModel(), retrieve: fakeRetrieve([DEPOSIT], seen), now: NOW },
   );
   expect(seen).toEqual([]);
-  expect(turn.reply).toContain("Which city is the rental in?");
-  expect(turn.reply).toContain("This is legal information and navigation, not legal advice or representation.");
+  expect(turn.reply).toContain("Which city is the apartment in?");
+  expect(turn.texts[0]).toBe("This is legal information and navigation, not legal advice or representation.");
+  expect(turn.texts.length).toBeGreaterThan(1);
   expect(turn.reply).not.toContain("21 days");
   expect(turn.citations).toEqual([]);
 });
@@ -96,9 +97,12 @@ test("a complete Los Angeles deposit searches with scope and keeps a weak match"
     unincorporated: false,
   });
   expect(turn.reply).toContain("21 days");
-  expect(turn.reply).toContain('Source: Los Angeles Housing Department, "Security deposit returns", https://housing.lacity.gov/residents/security-deposits, fetched 2026-10-17. Section: Return deadline.');
-  expect(turn.reply).toContain("Referral only.");
-  expect(turn.reply).toContain("https://dcba.lacounty.gov/");
+  expect(turn.reply).toContain("From Los Angeles Housing Department: https://housing.lacity.gov/residents/security-deposits");
+  expect(turn.reply).not.toContain("Referral only.");
+  expect(turn.texts.some((text) => text.includes("https://dcba.lacounty.gov/"))).toBe(true);
+  expect(turn.texts[0]).toContain("not legal advice");
+  expect(turn.texts.at(-1)).toContain("draft a short email");
+  expect(turn.texts.at(-1)).toContain("$800");
   expect(turn.citations).toHaveLength(1);
   const traces = await readDeveloperTrace(store, record.id);
   expect(traces[0]?.payload.relevance).toBe("weak");
@@ -161,8 +165,9 @@ test("a bad draft is replaced and a lockout stays urgent without a citation yet"
     phone: "+13105550103",
     message: "I got an eviction notice and the landlord locked me out.",
   });
-  expect(urgent.reply).toContain("This sounds time-sensitive.");
-  expect(urgent.reply).toContain("Which city is the rental in?");
+  expect(urgent.reply).toContain("This sounds urgent.");
+  expect(urgent.texts[0]).toContain("not legal advice");
+  expect(urgent.texts.some((text) => text.includes("Which city is the apartment in?"))).toBe(true);
   expect(urgent.reply).not.toContain("Source:");
 });
 
@@ -171,6 +176,8 @@ test("incoming messages stay on the phone's case", async () => {
   const first = await handleIncoming(store, new GroundedModel(), { phone: "+13105550100", message: "My landlord is being unfair." });
   const second = await handleIncoming(store, new GroundedModel(), { phone: "+13105550100", message: "It is the deposit." });
   expect(second.caseId).toBe(first.caseId);
+  expect(first.texts[0]).toContain("not legal advice");
+  expect(second.reply).not.toContain("not legal advice");
   await expect(handleIncoming(store, new GroundedModel(), { phone: "+13105550777", message: "Hello", caseId: first.caseId })).rejects.toThrow(
     "Case not found.",
   );
