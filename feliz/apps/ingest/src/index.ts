@@ -3,27 +3,46 @@
 //   npm run ingest -w @feliz/ingest                      # load webscraper/data/processed/documents.jsonl
 //   npm run ingest -w @feliz/ingest -- --dry-run         # print chunks; no keys, no writes
 //   npm run ingest -w @feliz/ingest -- --force           # re-embed pages whose text hasn't changed
+//   npm run ingest -w @feliz/ingest -- --only=lawhelpca  # just the pages whose URL contains this
 //   npm run ingest -w @feliz/ingest -- /abs/path/documents.jsonl
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   deleteStaleLegalChunks,
-  loadedContentHashes,
-  recordLoadedDocument,
+  loadedState,
   upsertLegalChunks,
+  upsertLegalSources,
   type LegalChunk,
+  type LegalSource,
 } from "@feliz/db";
+import { EMBEDDING_MODEL } from "@feliz/rag";
 import { chunkDocument } from "./chunker.js";
 import { embedChunks } from "./embed.js";
 import { parseDocument, parseJsonl, type ParsedDocument } from "./parser.js";
 
 const DEFAULT_INPUT = fileURLToPath(new URL("../webscraper/data/processed/documents.jsonl", import.meta.url));
 
+/** The page row every chunk references (legal_chunks.document_id -> legal_sources). */
+export function buildLegalSource(doc: ParsedDocument): LegalSource {
+  return {
+    documentId: doc.documentId,
+    sourceUrl: doc.url,
+    publisher: doc.publisher,
+    title: doc.title,
+    contentType: doc.raw.content_type || "html",
+    contentHash: doc.contentHash,
+    extractedText: doc.raw.text, // the scraper's text, unedited; chunks hold the cleaned text
+    lastFetchedAt: doc.raw.last_fetched_at,
+    metadata: { ...doc.raw.metadata, scraped_title: doc.raw.title, tags: doc.tags },
+  };
+}
+
 /** Steps 3–5 of the checklist: sections with headings, field mapping, tags. No embedding yet. */
 export function buildLegalChunks(doc: ParsedDocument): LegalChunk[] {
-  return chunkDocument(doc).map((s) => ({
+  return chunkDocument(doc).map((s, i) => ({
     id: s.id,
     documentId: doc.documentId,
+    chunkIndex: i,
     publisher: doc.publisher,
     title: doc.title,
     url: doc.url,
@@ -35,11 +54,14 @@ export function buildLegalChunks(doc: ParsedDocument): LegalChunk[] {
     city: doc.tags.city,
     topics: doc.tags.topics,
     embedding: null,
+    embeddingModel: null,
   }));
 }
 
-export async function ingest(input: string, { dryRun = false, force = false } = {}) {
-  const docs = parseJsonl(await readFile(input, "utf8")).map(parseDocument);
+export async function ingest(input: string, { dryRun = false, force = false, only }: { dryRun?: boolean; force?: boolean; only?: string } = {}) {
+  const docs = parseJsonl(await readFile(input, "utf8"))
+    .filter((d) => !only || d.source_url.includes(only))
+    .map(parseDocument);
   const byDoc = docs.map((doc) => ({ doc, chunks: buildLegalChunks(doc) }));
 
   if (dryRun) {
@@ -52,18 +74,23 @@ export async function ingest(input: string, { dryRun = false, force = false } = 
     return;
   }
 
-  const loaded = force ? new Map<string, string>() : await loadedContentHashes(docs.map((d) => d.documentId));
+  const loaded = force ? new Map() : await loadedState(docs.map((d) => d.documentId));
   let written = 0;
   for (const { doc, chunks } of byDoc) {
-    if (loaded.get(doc.documentId) === doc.contentHash) {
+    const prev = loaded.get(doc.documentId);
+    if (prev && prev.contentHash === doc.contentHash && prev.chunkCount === chunks.length) {
       console.log(`  unchanged  ${doc.url}`);
       continue;
     }
+    // Embed before writing anything, so a Gemini failure leaves the database untouched.
     const vectors = await embedChunks(chunks);
-    chunks.forEach((c, i) => (c.embedding = vectors[i]));
+    chunks.forEach((c, i) => {
+      c.embedding = vectors[i];
+      c.embeddingModel = EMBEDDING_MODEL;
+    });
+    await upsertLegalSources([buildLegalSource(doc)]); // the page row must exist before its chunks
     await upsertLegalChunks(chunks);
     await deleteStaleLegalChunks(doc.documentId, chunks.map((c) => c.id));
-    await recordLoadedDocument({ documentId: doc.documentId, url: doc.url, contentHash: doc.contentHash, chunkCount: chunks.length });
     written += chunks.length;
     console.log(`  loaded ${String(chunks.length).padStart(3)}  ${doc.url}`);
   }
@@ -76,6 +103,7 @@ async function main() {
   await ingest(args.find((a) => !a.startsWith("--")) ?? DEFAULT_INPUT, {
     dryRun: args.includes("--dry-run"),
     force: args.includes("--force"),
+    only: args.find((a) => a.startsWith("--only="))?.slice("--only=".length),
   });
 }
 

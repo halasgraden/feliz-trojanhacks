@@ -22,6 +22,7 @@ export interface ParsedDocument {
   contentHash: string;
   text: string; // cleaned page text
   tags: PageTags;
+  raw: ScrapedDocument; // the scraper's record, stored as-is in legal_sources
 }
 
 export function parseJsonl(jsonl: string): ScrapedDocument[] {
@@ -50,6 +51,7 @@ export function parseDocument(doc: ScrapedDocument): ParsedDocument {
     contentHash: doc.content_hash,
     text: removeOutdated(cleanText(doc.text, new URL(doc.source_url).host), doc.source_url),
     tags,
+    raw: doc,
   };
 }
 

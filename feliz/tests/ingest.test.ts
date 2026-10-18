@@ -1,24 +1,40 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { LegalChunk } from "@feliz/db";
+import type { LegalChunk, LegalSource } from "@feliz/db";
 
 // Real scraped pages: tenant harassment (City of LA, mojibake, an outdated deadline),
 // the LawHelpCA housing index (navigation, the 10-court-day rule), LAFLA locations (time ranges).
 const FIXTURE = "tests/fixtures/documents.sample.jsonl";
 
-// In-memory stand-in for Supabase, so ingest() runs without keys.
+// In-memory stand-in for Supabase, so ingest() runs without keys. Rows go through the real
+// column mapping (legalChunkRow / legalSourceRow) so the schema contract below is checked too.
 const store = {
-  chunks: new Map<string, LegalChunk>(),
-  hashes: new Map<string, string>(),
+  sources: new Map<string, Record<string, unknown>>(),
+  chunks: new Map<string, Record<string, unknown>>(),
 };
-vi.mock("@feliz/db", () => ({
-  upsertLegalChunks: async (rows: LegalChunk[]) => rows.forEach((r) => store.chunks.set(r.id, r)),
-  deleteStaleLegalChunks: async (documentId: string, keep: string[]) => {
-    for (const [id, c] of store.chunks) if (c.documentId === documentId && !keep.includes(id)) store.chunks.delete(id);
-  },
-  loadedContentHashes: async () => new Map(store.hashes),
-  recordLoadedDocument: async (d: { documentId: string; contentHash: string }) => store.hashes.set(d.documentId, d.contentHash),
-}));
+vi.mock("@feliz/db", async () => {
+  const real = await vi.importActual<typeof import("@feliz/db")>("@feliz/db");
+  return {
+    ...real,
+    upsertLegalSources: async (rows: LegalSource[]) => rows.forEach((r) => store.sources.set(r.documentId, real.legalSourceRow(r))),
+    upsertLegalChunks: async (rows: LegalChunk[]) => {
+      for (const r of rows) {
+        if (!store.sources.has(r.documentId)) throw new Error("foreign key: legal_sources row missing");
+        store.chunks.set(r.id, real.legalChunkRow(r));
+      }
+    },
+    deleteStaleLegalChunks: async (documentId: string, keep: string[]) => {
+      for (const [id, c] of store.chunks) if (c.document_id === documentId && !keep.includes(id)) store.chunks.delete(id);
+    },
+    loadedState: async () => {
+      const m = new Map<string, { contentHash: string; chunkCount: number }>();
+      for (const [id, s] of store.sources) {
+        m.set(id, { contentHash: s.content_hash as string, chunkCount: [...store.chunks.values()].filter((c) => c.document_id === id).length });
+      }
+      return m;
+    },
+  };
+});
 
 const { parseJsonl, parseDocument, fixMojibake } = await import("../apps/ingest/src/parser.js");
 const { buildLegalChunks, ingest } = await import("../apps/ingest/src/index.js");
@@ -104,7 +120,7 @@ describe("ingest()", () => {
   let embedCalls = 0;
   beforeEach(() => {
     store.chunks.clear();
-    store.hashes.clear();
+    store.sources.clear();
     embedCalls = 0;
     process.env.GEMINI_API_KEY = "test-key";
     vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
@@ -120,7 +136,10 @@ describe("ingest()", () => {
   test("loads every chunk with a 768-d embedding, then skips unchanged pages", async () => {
     await ingest(FIXTURE);
     expect(store.chunks.size).toBe(chunks.length);
-    expect([...store.chunks.values()].every((c) => c.embedding?.length === 768)).toBe(true);
+    const rows = [...store.chunks.values()];
+    expect(rows.every((c) => typeof c.embedding === "string" && (c.embedding as string).split(",").length === 768)).toBe(true);
+    expect(rows.every((c) => c.embedding_model === "gemini-embedding-001")).toBe(true);
+    expect(store.sources.size).toBe(docs.length);
 
     const calls = embedCalls;
     await ingest(FIXTURE);
@@ -130,9 +149,36 @@ describe("ingest()", () => {
   test("a page that got shorter loses its stale chunks", async () => {
     await ingest(FIXTURE);
     const doc = docs[0];
-    store.chunks.set(`${doc.documentId}_999`, { ...[...store.chunks.values()][0], id: `${doc.documentId}_999`, documentId: doc.documentId });
+    store.chunks.set(`${doc.documentId}_999`, { ...[...store.chunks.values()][0], id: `${doc.documentId}_999`, document_id: doc.documentId });
     await ingest(FIXTURE, { force: true });
     expect(store.chunks.has(`${doc.documentId}_999`)).toBe(false);
     expect(store.chunks.size).toBe(chunks.length);
+  });
+});
+
+describe("rows match the Supabase schema (snapshot of the team's tables, 2026-10-17)", () => {
+  // From the project's PostgREST schema. * = NOT NULL without a default.
+  const LEGAL_CHUNKS = "id* document_id* chunk_index* publisher* title* url* fetched_at* heading* body* page_number state county city topics* embedding embedding_model";
+  const LEGAL_SOURCES = "document_id* source_url* publisher* title* content_type* content_hash* extracted_text* storage_path last_fetched_at* metadata* created_at";
+  const check = (row: Record<string, unknown>, spec: string) => {
+    const cols = spec.split(" ");
+    const known = cols.map((c) => c.replace("*", ""));
+    for (const key of Object.keys(row)) expect(known, `unknown column ${key}`).toContain(key);
+    for (const c of cols.filter((c) => c.endsWith("*")).map((c) => c.slice(0, -1))) {
+      expect(row[c], `required column ${c}`).not.toBeNull();
+      expect(row[c], `required column ${c}`).not.toBeUndefined();
+    }
+  };
+
+  test("legal_chunks rows", async () => {
+    const { legalChunkRow } = await vi.importActual<typeof import("@feliz/db")>("@feliz/db");
+    for (const c of chunks) check(legalChunkRow(c), LEGAL_CHUNKS);
+    expect(chunks.map((c) => c.chunkIndex)).toEqual(chunks.map((c) => Number(c.id.split("_").pop())));
+  });
+
+  test("legal_sources rows", async () => {
+    const { legalSourceRow } = await vi.importActual<typeof import("@feliz/db")>("@feliz/db");
+    const { buildLegalSource } = await import("../apps/ingest/src/index.js");
+    for (const d of docs) check(legalSourceRow(buildLegalSource(d)), LEGAL_SOURCES);
   });
 });
