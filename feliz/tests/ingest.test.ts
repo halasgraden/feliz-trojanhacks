@@ -154,7 +154,7 @@ describe("ingest()", () => {
     expect(store.chunks.size).toBe(chunks.length);
     const rows = [...store.chunks.values()];
     expect(rows.every((c) => typeof c.embedding === "string" && (c.embedding as string).split(",").length === 768)).toBe(true);
-    expect(rows.every((c) => c.embedding_model === "Xenova/multilingual-e5-base")).toBe(true);
+    expect(rows.every((c) => c.embedding_model === "gemini-embedding-001")).toBe(true);
     expect(store.sources.size).toBe(docs.length);
 
     const calls = embeddingMock.calls;
@@ -174,11 +174,11 @@ describe("ingest()", () => {
     expect(embeddingMock.calls).toBe(0);
     await ingest(FIXTURE);
     expect(embeddingMock.calls).toBeGreaterThan(0);
-    for (const row of store.chunks.values()) row.embedding_model = "gemini-embedding-001";
+    for (const row of store.chunks.values()) row.embedding_model = "Xenova/multilingual-e5-base";
     const previous = embeddingMock.calls;
     await ingest(FIXTURE);
     expect(embeddingMock.calls).toBeGreaterThan(previous);
-    expect([...store.chunks.values()].every((c) => c.embedding_model === "Xenova/multilingual-e5-base")).toBe(true);
+    expect([...store.chunks.values()].every((c) => c.embedding_model === "gemini-embedding-001")).toBe(true);
   });
 
   test("a page that got shorter loses its stale chunks", async () => {

@@ -1,65 +1,68 @@
 import { beforeEach, expect, test, vi } from "vitest";
-const mocked = vi.hoisted(() => ({ inputs: [] as string[], loads: 0, options: [] as unknown[], bad: false }));
-vi.mock("@huggingface/transformers", () => ({
-  env: {},
-  pipeline: async (_task: string, model: string, options: unknown) => {
-    mocked.loads++; mocked.options.push(options);
-    expect(model).toBe("Xenova/multilingual-e5-base");
-    const pipe = async (texts: string[], args: unknown) => {
-      expect(args).toEqual({ pooling: "mean", normalize: true });
-      mocked.inputs.push(...texts);
-      return { tolist: () => texts.map(() => Array.from({ length: mocked.bad ? 4 : 768 }, (_, j) => Number(j === 0))), dispose() {} };
+import { embedDocuments, embedQuery, embedTexts, EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from "@feliz/rag";
+
+const seen: { task: string; texts: string[]; key: string | null }[] = [];
+
+beforeEach(() => {
+  seen.length = 0;
+  process.env.GEMINI_API_KEY = "test-key";
+  vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as {
+      requests: { taskType: string; outputDimensionality: number; content: { parts: { text: string }[] } }[];
     };
-    // Same shape as the real tokenizer for one string: a FLAT id array (an earlier mock returned
-    // [[...]], which hid a bug where the 512-token check never ran). One "id" per word here.
-    const tok = (text: string, o: { add_special_tokens?: boolean } = {}) => {
-      const words = text.split(/\s+/).filter(Boolean);
-      return { input_ids: o.add_special_tokens === false ? words : ["<s>", ...words, "</s>"] };
-    };
-    tok.decode = (ids: string[]) => ids.join(" ");
-    pipe.tokenizer = tok;
-    return pipe;
-  },
-}));
-import { embedDocuments, embedQuery, embedTexts, tokenIds, EMBEDDING_DIMENSIONS } from "@feliz/rag";
-beforeEach(() => { mocked.inputs.length = 0; mocked.bad = false; });
-test("local E5 uses passage/query prefixes, 768 unit vectors and one CPU model", async () => {
-  const query = await embedQuery("  security deposit  ");
-  const docs = await embedDocuments(["Return deadline\nReturn the deposit.", "Another passage."]);
-  expect(mocked.inputs).toEqual(["query: security deposit", "passage: Return deadline\nReturn the deposit.", "passage: Another passage."]);
-  expect(query).toHaveLength(EMBEDDING_DIMENSIONS);
-  expect(docs).toHaveLength(2);
-  expect(mocked.loads).toBe(1);
-  expect(mocked.options).toEqual([{ dtype: "q8", device: "cpu" }]);
-});
-test("empty batches need no inference; empty strings and over-long passages are rejected", async () => {
-  expect(await embedDocuments([])).toEqual([]);
-  await expect(embedQuery(" ")).rejects.toThrow("empty");
-  await expect(embedDocuments(["word ".repeat(600)])).rejects.toThrow("512-token limit");
-});
-test("an over-long question keeps its END (the newest message) and reports the cut", async () => {
-  const words = Array.from({ length: 700 }, (_, i) => `w${i}`);
-  const cuts: { tokens: number; keptTokens: number }[] = [];
-  await embedQuery(words.join(" "), { onTruncate: (c) => cuts.push(c) });
-  const sent = mocked.inputs.at(-1)!;
-  expect(sent.startsWith("query: ")).toBe(true);
-  expect(sent.endsWith("w699")).toBe(true); // last word kept
-  expect(sent).not.toContain(" w0 ");       // start dropped
-  expect(cuts).toEqual([{ index: 0, tokens: 703, keptTokens: 512 }]); // "query:" + 700 words + 2 specials
-});
-test("batching reports progress and rejects invalid output, then recovers", async () => {
-  const progress: number[] = [];
-  expect(await embedTexts(Array.from({ length: 10 }, (_, i) => `p${i}`), "RETRIEVAL_DOCUMENT", { onProgress: (n) => progress.push(n) })).toHaveLength(10);
-  expect(progress).toEqual([4, 8, 10]);
-  mocked.bad = true;
-  await expect(embedQuery("hello")).rejects.toThrow("invalid 768");
-  mocked.bad = false;
-  await expect(embedQuery("recovered")).resolves.toHaveLength(768);
+    const headers = new Headers(init?.headers);
+    seen.push({
+      task: body.requests[0]?.taskType ?? "",
+      texts: body.requests.map((request) => request.content.parts[0]?.text ?? ""),
+      key: headers.get("x-goog-api-key"),
+    });
+    expect(body.requests.every((request) => request.outputDimensionality === 768)).toBe(true);
+    const embeddings = body.requests.map(() => ({ values: Array.from({ length: 768 }, (_, index) => (index === 0 ? 3 : 0)) }));
+    return new Response(JSON.stringify({ embeddings }), { status: 200 });
+  });
 });
 
-test("token counting handles both flat and nested tokenizer output", () => {
-  const flat = { tokenizer: Object.assign(() => ({ input_ids: [1, 2, 3] }), { decode: () => "" }) } as any;
-  const nested = { tokenizer: Object.assign(() => ({ input_ids: [[1, 2, 3, 4]] }), { decode: () => "" }) } as any;
-  expect(tokenIds(flat, "x")).toHaveLength(3);
-  expect(tokenIds(nested, "x")).toHaveLength(4);
+test("gemini-embedding-001 uses retrieval task types and returns normalized 768-d vectors", async () => {
+  const query = await embedQuery("  security deposit  ");
+  const docs = await embedDocuments(["Return deadline\nReturn the deposit.", "Another passage."]);
+  expect(EMBEDDING_MODEL).toBe("gemini-embedding-001");
+  expect(seen.map((call) => call.task)).toEqual(["RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT"]);
+  expect(seen.flatMap((call) => call.texts)).toEqual([
+    "security deposit",
+    "Return deadline\nReturn the deposit.",
+    "Another passage.",
+  ]);
+  expect(seen.every((call) => call.key === "test-key")).toBe(true);
+  expect(query).toHaveLength(EMBEDDING_DIMENSIONS);
+  expect(query[0]).toBeCloseTo(1);
+  expect(docs).toHaveLength(2);
+});
+
+test("empty batches need no request; empty strings and over-long passages are rejected", async () => {
+  expect(await embedDocuments([])).toEqual([]);
+  await expect(embedQuery(" ")).rejects.toThrow("empty");
+  await expect(embedDocuments(["word ".repeat(5000)])).rejects.toThrow("2048-token limit");
+  delete process.env.GEMINI_API_KEY;
+  await expect(embedQuery("deposit")).rejects.toThrow("GEMINI_API_KEY");
+});
+
+test("an over-long question keeps its end and reports the cut", async () => {
+  const words = Array.from({ length: 3000 }, (_, index) => `w${index}`);
+  const cuts: { tokens: number; keptTokens: number }[] = [];
+  await embedQuery(words.join(" "), { onTruncate: (cut) => cuts.push(cut) });
+  const sent = seen.at(-1)?.texts[0] ?? "";
+  expect(sent.endsWith("w2999")).toBe(true);
+  expect(sent).not.toContain("w0 ");
+  expect(cuts).toHaveLength(1);
+  expect(cuts[0]?.keptTokens).toBe(2048);
+});
+
+test("batching reports progress and rejects an invalid vector", async () => {
+  const progress: number[] = [];
+  await embedTexts(Array.from({ length: 10 }, (_, index) => `p${index}`), "RETRIEVAL_DOCUMENT", {
+    onProgress: (done) => progress.push(done),
+  });
+  expect(progress).toEqual([10]);
+  vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ embeddings: [{ values: [1, 2, 3] }] }), { status: 200 }));
+  await expect(embedQuery("hello")).rejects.toThrow("invalid 768");
 });

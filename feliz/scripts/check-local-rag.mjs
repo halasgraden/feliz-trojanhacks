@@ -8,7 +8,7 @@ const input = process.argv[2] || fileURLToPath(new URL("../apps/ingest/webscrape
 const raw = await readFile(input, "utf8");
 const docs = parseJsonl(raw).map(parseDocument);
 const chunks = docs.flatMap(buildLegalChunks);
-console.log(`Parsed ${docs.length} pages into ${chunks.length} chunks. Embedding locally on CPU...`);
+console.log(`Parsed ${docs.length} pages into ${chunks.length} chunks. Embedding with ${EMBEDDING_MODEL}...`);
 const started = Date.now();
 const vectors = await embedDocuments(chunks.map(chunkEmbeddingText), { onProgress: (n, total) => { if (n % 40 === 0 || n === total) console.log(`Embedded ${n}/${total}`); } });
 chunks.forEach((chunk, i) => { chunk.embedding = vectors[i]; chunk.embeddingModel = EMBEDDING_MODEL; });

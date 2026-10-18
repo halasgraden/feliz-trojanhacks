@@ -1,6 +1,6 @@
 # Feliz (Renter's Resource Guide)
 
-TypeScript monorepo for a tenant rights and housing resource navigator. Local multilingual E5 embeddings, corpus ingestion, Supabase data access and retrieval are implemented. Photon Spectrum connects the bot to iMessage and currently echoes text; the agent workflow still needs to connect retrieved evidence to answer generation.
+TypeScript monorepo for a tenant rights and housing resource navigator. Gemini embeddings, corpus ingestion, Supabase data access and retrieval are implemented. Photon Spectrum connects the bot to iMessage and currently echoes text; the agent workflow still needs to connect retrieved evidence to answer generation.
 
 ## Requirements
 
@@ -39,14 +39,14 @@ npm test           # run Vitest
 
 Workspace packages use the `@feliz/*` scope and can be imported through npm workspace links as their implementations are added.
 
-Without Photon credentials, `npm run dev` and `npm run start` print a setup reminder and exit. With valid credentials and iMessage enabled in the Photon project, the bot initializes iMessage and echoes incoming text messages. Agent logic is not implemented yet.
+Without Photon credentials, `npm run dev` and `npm run start` print a setup reminder and exit. With valid credentials and iMessage enabled in the Photon project, the bot initializes iMessage and echoes incoming text messages. Agent logic is not implemented yet. Embeddings use `GEMINI_API_KEY` and `gemini-embedding-001`.
 
 ## Legal corpus (`apps/ingest` → Supabase `legal_chunks`)
 
 Follows the [Supabase contract on the webscraper branch](https://github.com/halasgraden/feliz-trojanhacks/blob/webscraper/feliz/docs/rag-supabase.md). See [the local RAG handoff](docs/local-rag.md) for setup and agent integration.
 
 1. Use the team's existing `legal_sources` / `legal_chunks` schema with `vector(768)`. No new migration is required for this embedding switch.
-2. Embeddings run locally with multilingual-e5-base (no API key). Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env` only for database upload.
+2. Embeddings use `gemini-embedding-001` (`GEMINI_API_KEY`). Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env` for database upload.
 3. `npm run ingest -w @feliz/ingest -- --dry-run` to review the chunks, then without `--dry-run` to load.
    Reads `apps/ingest/webscraper/data/processed/documents.jsonl` by default; pass a path to use another file.
    Unchanged pages are skipped only when their content hash, chunk count and embedding model match; `--force` re-embeds everything.
@@ -62,7 +62,7 @@ What the loader does to each scraped page:
   A page with no entry is refused, so a new scrape needs tags before it loads.
 - Drops sentences listed in `OUTDATED_SENTENCES` (e.g. LAFLA's "5 days to answer" an eviction,
   superseded by AB 2347's 10 court days).
-- Embeds `passage: heading\nbody` locally with `Xenova/multilingual-e5-base` at 768 dimensions and upserts on `{document_id}_{index}`.
+- Embeds `heading\nbody` with `gemini-embedding-001` at 768 dimensions (`RETRIEVAL_DOCUMENT` for passages, `RETRIEVAL_QUERY` for questions) and upserts on `{document_id}_{index}`. Re-run ingest after this switch so stored E5 vectors are replaced.
 
 ## Local RAG: ready for agent integration
 
