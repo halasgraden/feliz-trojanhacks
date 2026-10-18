@@ -9,7 +9,6 @@ export const EMBEDDING_DIMENSIONS = 768;
 export const EMBEDDING_MAX_TOKENS = 2048;
 const CHARS_PER_TOKEN = 4;
 const MAX_CHARS = EMBEDDING_MAX_TOKENS * CHARS_PER_TOKEN;
-const BATCH = 100;
 
 export type EmbeddingTask = "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
 export interface EmbedOptions {
@@ -35,10 +34,8 @@ export async function embedQuery(query: string, opts: EmbedOptions = {}): Promis
 }
 
 /**
- * Serialized embedding calls, by one of two routes to the same model:
- * - Vertex AI with a Google Cloud service account, when GOOGLE_APPLICATION_CREDENTIALS
- *   points at its JSON key file (one text per request; the project needs billing enabled).
- * - The Gemini API with GEMINI_API_KEY otherwise (batches of 100).
+ * Serialized Vertex embedding calls. GOOGLE_APPLICATION_CREDENTIALS must point at a
+ * service-account JSON key (one text per request; the project needs billing).
  * Missing credentials fail this call; retrieve() then uses keywords.
  */
 export function embedTexts(texts: string[], task: EmbeddingTask, opts: EmbedOptions = {}): Promise<number[][]> {
@@ -60,43 +57,16 @@ export function embedTexts(texts: string[], task: EmbeddingTask, opts: EmbedOpti
 }
 
 /** Which route embedTexts will use, for logs and traces. */
-export function embeddingRoute(): "vertex" | "gemini" | "none" {
+export function embeddingRoute(): "vertex" | "none" {
   loadEnv();
-  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return "vertex";
-  return process.env.GEMINI_API_KEY ? "gemini" : "none";
+  return process.env.GOOGLE_APPLICATION_CREDENTIALS ? "vertex" : "none";
 }
 
 async function embedBatch(texts: string[], task: EmbeddingTask, opts: EmbedOptions): Promise<number[][]> {
-  const route = embeddingRoute();
-  if (route === "none") {
-    throw new Error("Set GOOGLE_APPLICATION_CREDENTIALS (service account key file) or GEMINI_API_KEY to embed with gemini-embedding-001");
+  if (embeddingRoute() === "none") {
+    throw new Error("Set GOOGLE_APPLICATION_CREDENTIALS to a service account key file to embed with gemini-embedding-001");
   }
-  return route === "vertex" ? embedVertex(texts, task, opts) : embedGemini(texts, task, opts);
-}
-
-async function embedGemini(texts: string[], task: EmbeddingTask, opts: EmbedOptions): Promise<number[][]> {
-  const apiKey = process.env.GEMINI_API_KEY!;
-  const vectors: number[][] = [];
-  for (let start = 0; start < texts.length; start += BATCH) {
-    const batch = texts.slice(start, start + BATCH);
-    const body = await postJson<{ embeddings?: { values?: number[] }[] }>(
-      `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`,
-      { "x-goog-api-key": apiKey },
-      {
-        requests: batch.map((text) => ({
-          model: `models/${EMBEDDING_MODEL}`,
-          content: { parts: [{ text }] },
-          taskType: task,
-          outputDimensionality: EMBEDDING_DIMENSIONS,
-        })),
-      },
-    );
-    const rows = body.embeddings ?? [];
-    if (rows.length !== batch.length) throw new Error("Gemini embedding batch count mismatch");
-    for (const row of rows) vectors.push(unitVector(row.values));
-    opts.onProgress?.(vectors.length, texts.length);
-  }
-  return vectors;
+  return embedVertex(texts, task, opts);
 }
 
 const VERTEX_CONCURRENCY = 4;
@@ -134,6 +104,13 @@ interface ServiceAccount {
 
 let account: { path: string; value: ServiceAccount } | undefined;
 let token: { value: Promise<string>; expires: number } | undefined;
+
+/** Access token and project for Vertex calls. Chat uses this; embeddings use the same sign-in. */
+export async function vertexAccessToken(): Promise<{ token: string; projectId: string }> {
+  loadEnv();
+  const account = serviceAccount();
+  return { token: await accessToken(account), projectId: account.project_id };
+}
 
 function serviceAccount(): ServiceAccount {
   const path = process.env.GOOGLE_APPLICATION_CREDENTIALS!;
@@ -199,7 +176,7 @@ async function postJson<T>(url: string, headers: Record<string, string>, payload
 }
 
 function loadEnv() {
-  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
   try {
     process.loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
   } catch {

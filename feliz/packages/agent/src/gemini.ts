@@ -1,4 +1,5 @@
 import type { CaseFacts, LegalChunk, LegalSearchRecord } from "@feliz/db";
+import { vertexAccessToken } from "@feliz/rag";
 import { composeFromChunks, NOT_COVERED } from "./reply.js";
 import { SYSTEM_PROMPT } from "./prompts.js";
 import { TOOL_DECLARATIONS } from "./schemas.js";
@@ -65,10 +66,8 @@ export class GroundedModel implements LanguageModel {
 export class GeminiModel implements LanguageModel {
   readonly id = GEMINI_MODEL;
 
-  constructor(
-    private apiKey: string,
-    private fetchImpl: FetchImpl = fetch,
-  ) {}
+  /** Drafts through Vertex with the service-account JSON. gemini-3.8-flash is on the global endpoint. */
+  constructor(private fetchImpl: FetchImpl = fetch) {}
 
   async answer(input: AnswerInput, tools: ToolExecutor): Promise<AnswerResult> {
     const contents: { role: string; parts: Record<string, unknown>[] }[] = [
@@ -149,13 +148,15 @@ export class GeminiModel implements LanguageModel {
   }
 
   private async generate(contents: { role: string; parts: Record<string, unknown>[] }[]) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+    const access = await vertexAccessToken();
+    const url = `https://aiplatform.googleapis.com/v1/projects/${access.projectId}/locations/global/publishers/google/models/${GEMINI_MODEL}:generateContent`;
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      authorization: `Bearer ${access.token}`,
+    };
     const response = await this.fetchImpl(url, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": this.apiKey,
-      },
+      headers,
       body: JSON.stringify(buildGenerateRequest(SYSTEM_PROMPT, contents)),
     });
     const body = (await response.json().catch(() => ({}))) as {
