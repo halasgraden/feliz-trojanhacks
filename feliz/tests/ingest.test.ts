@@ -132,19 +132,10 @@ describe("accuracy", () => {
 });
 
 describe("ingest()", () => {
-  let embedCalls = 0;
   beforeEach(() => {
     store.chunks.clear();
     store.sources.clear();
-    embedCalls = 0;
     embeddingMock.calls = 0;
-    process.env.GEMINI_API_KEY = "test-key";
-    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
-      embedCalls++;
-      const n = JSON.parse(init.body as string).requests.length;
-      const embeddings = Array.from({ length: n }, () => ({ values: Array.from({ length: 768 }, (_, j) => (j === 0 ? 1 : 0)) }));
-      return new Response(JSON.stringify({ embeddings }));
-    });
     vi.spyOn(console, "log").mockImplementation(() => {});
   });
   afterEach(() => vi.restoreAllMocks());

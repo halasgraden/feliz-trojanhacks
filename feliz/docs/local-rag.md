@@ -2,12 +2,11 @@
 
 Default embedding model: `gemini-embedding-001` at 768 dimensions, L2-normalized. Passages use task type `RETRIEVAL_DOCUMENT` on `heading\nbody`. Questions use `RETRIEVAL_QUERY`. Vectors from `Xenova/multilingual-e5-base` are a different model and are not scored.
 
-### Credentials: two routes to the same model
+### Credentials
 
-- **Service account (Vertex AI), used when set:** `GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/key.json` in `feliz/.env`. The project in the key file needs Vertex AI enabled and billing linked. One text per request, four at a time; the access token is shared and refreshed automatically. Optional `VERTEX_LOCATION` (default `us-central1`). Keep the key file **outside the repo** and never commit it.
-- **Gemini API key:** `GEMINI_API_KEY`, used when no service account is set. Batches of 100.
+Set `GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/key.json` in `feliz/.env`. That service account is the only Gemini credential: Vertex embeds passages and questions, and drafts replies. The project in the key file needs Vertex AI enabled and billing linked. Embeddings send one text per request, four at a time; the access token is shared and refreshed automatically. Optional `VERTEX_LOCATION` (default `us-central1`) applies to embeddings. Replies use the global endpoint. Keep the key file **outside the repo** and never commit it.
 
-Both call `gemini-embedding-001` with the same task types and 768-wide output, so corpus vectors and query vectors match whichever route made them. Rate limits (429) and brief outages (5xx) are retried with backoff; other errors (no billing, bad key) fail at once. `embeddingRoute()` reports which route is active.
+Calls use `gemini-embedding-001` with the retrieval task types and 768-wide output. Rate limits (429) and brief outages (5xx) are retried with backoff; other errors (no billing, bad key) fail at once. `embeddingRoute()` reports `vertex` or `none`.
 
 ## Run the complete local check
 
@@ -26,7 +25,7 @@ npm run rag:query -- "My landlord kept my security deposit"
 
 The scripts perform no Supabase writes. Both files are ignored by Git. Keep a real model run separate from unit tests (`npm test`), which mock inference and database writes. A retrieval hit is a candidate source passage, not validation of a generated legal claim.
 
-`rag:check` calls the Gemini API, so it needs `GEMINI_API_KEY` in `feliz/.env`. The model accepts 2,048 tokens. A longer question keeps its end and sets `queryTruncated: true`. A longer passage is refused, since that means the chunker produced an oversized chunk. Passing the current question plus concise relevant facts still works best. After this model switch, run ingest again so every stored vector is `gemini-embedding-001`.
+`rag:check` calls Vertex, so it needs `GOOGLE_APPLICATION_CREDENTIALS` in `feliz/.env`. The model accepts 2,048 tokens. A longer question keeps its end and sets `queryTruncated: true`. A longer passage is refused, since that means the chunker produced an oversized chunk. Passing the current question plus concise relevant facts still works best. After this model switch, run ingest again so every stored vector is `gemini-embedding-001`.
 
 ## Agent API
 

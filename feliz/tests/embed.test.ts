@@ -1,24 +1,35 @@
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import { embedDocuments, embedQuery, embedTexts, EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from "@feliz/rag";
 
-const seen: { task: string; texts: string[]; key: string | null }[] = [];
+const seen: { task: string; text: string }[] = [];
+const TOKEN_URL = "https://oauth2.example/token";
 
 beforeEach(() => {
   seen.length = 0;
-  process.env.GEMINI_API_KEY = "test-key";
-  vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const file = join(mkdtempSync(join(tmpdir(), "sa-")), "key.json");
+  writeFileSync(file, JSON.stringify({
+    type: "service_account",
+    project_id: "demo-project",
+    client_email: "bot@demo-project.iam.gserviceaccount.com",
+    private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
+    token_uri: TOKEN_URL,
+  }));
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = file;
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    if (url === TOKEN_URL) return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
     const body = JSON.parse(String(init?.body)) as {
-      requests: { taskType: string; outputDimensionality: number; content: { parts: { text: string }[] } }[];
+      instances: { task_type: string; content: string }[];
+      parameters: { outputDimensionality: number };
     };
-    const headers = new Headers(init?.headers);
-    seen.push({
-      task: body.requests[0]?.taskType ?? "",
-      texts: body.requests.map((request) => request.content.parts[0]?.text ?? ""),
-      key: headers.get("x-goog-api-key"),
-    });
-    expect(body.requests.every((request) => request.outputDimensionality === 768)).toBe(true);
-    const embeddings = body.requests.map(() => ({ values: Array.from({ length: 768 }, (_, index) => (index === 0 ? 3 : 0)) }));
-    return new Response(JSON.stringify({ embeddings }), { status: 200 });
+    seen.push({ task: body.instances[0]?.task_type ?? "", text: body.instances[0]?.content ?? "" });
+    expect(body.parameters.outputDimensionality).toBe(768);
+    const values = Array.from({ length: 768 }, (_, index) => (index === 0 ? 3 : 0));
+    return new Response(JSON.stringify({ predictions: [{ embeddings: { values } }] }));
   });
 });
 
@@ -26,13 +37,12 @@ test("gemini-embedding-001 uses retrieval task types and returns normalized 768-
   const query = await embedQuery("  security deposit  ");
   const docs = await embedDocuments(["Return deadline\nReturn the deposit.", "Another passage."]);
   expect(EMBEDDING_MODEL).toBe("gemini-embedding-001");
-  expect(seen.map((call) => call.task)).toEqual(["RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT"]);
-  expect(seen.flatMap((call) => call.texts)).toEqual([
+  expect(seen.map((call) => call.task)).toEqual(["RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "RETRIEVAL_DOCUMENT"]);
+  expect(seen.map((call) => call.text)).toEqual([
     "security deposit",
     "Return deadline\nReturn the deposit.",
     "Another passage.",
   ]);
-  expect(seen.every((call) => call.key === "test-key")).toBe(true);
   expect(query).toHaveLength(EMBEDDING_DIMENSIONS);
   expect(query[0]).toBeCloseTo(1);
   expect(docs).toHaveLength(2);
@@ -44,8 +54,8 @@ test("empty batches need no request; empty strings and over-long passages are re
   await expect(embedDocuments(["word ".repeat(5000)])).rejects.toThrow("2048-token limit");
   // embed.ts falls back to reading feliz/.env; stop that so a developer's real .env can't satisfy it.
   const loadEnv = vi.spyOn(process, "loadEnvFile").mockImplementation(() => {});
-  delete process.env.GEMINI_API_KEY;
-  await expect(embedQuery("deposit")).rejects.toThrow("GEMINI_API_KEY");
+  delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  await expect(embedQuery("deposit")).rejects.toThrow("GOOGLE_APPLICATION_CREDENTIALS");
   loadEnv.mockRestore();
 });
 
@@ -53,7 +63,7 @@ test("an over-long question keeps its end and reports the cut", async () => {
   const words = Array.from({ length: 3000 }, (_, index) => `w${index}`);
   const cuts: { tokens: number; keptTokens: number }[] = [];
   await embedQuery(words.join(" "), { onTruncate: (cut) => cuts.push(cut) });
-  const sent = seen.at(-1)?.texts[0] ?? "";
+  const sent = seen.at(-1)?.text ?? "";
   expect(sent.endsWith("w2999")).toBe(true);
   expect(sent).not.toContain("w0 ");
   expect(cuts).toHaveLength(1);
@@ -65,8 +75,11 @@ test("batching reports progress and rejects an invalid vector", async () => {
   await embedTexts(Array.from({ length: 10 }, (_, index) => `p${index}`), "RETRIEVAL_DOCUMENT", {
     onProgress: (done) => progress.push(done),
   });
-  expect(progress).toEqual([10]);
-  vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ embeddings: [{ values: [1, 2, 3] }] }), { status: 200 }));
+  expect(progress).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  vi.stubGlobal("fetch", async (url: string) => {
+    if (url === TOKEN_URL) return new Response(JSON.stringify({ access_token: "tok", expires_in: 3600 }));
+    return new Response(JSON.stringify({ predictions: [{ embeddings: { values: [1, 2, 3] } }] }), { status: 200 });
+  });
   await expect(embedQuery("hello")).rejects.toThrow("invalid 768");
 });
 

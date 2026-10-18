@@ -33,7 +33,7 @@ if (!process.env.SPECTRUM_PROJECT_ID || !process.env.SPECTRUM_PROJECT_SECRET) {
     }
     try {
       const turn = await handleIncoming(runtime.store, runtime.model, { phone, message: message.content.text });
-      await space.send(turn.reply);
+      for (const text of turn.texts) await space.send(text);
     } catch (error) {
       console.error(error instanceof Error ? error.message : error);
       await space.send("I could not finish that turn. Please send the message again.");

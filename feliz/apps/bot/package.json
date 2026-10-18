@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-  "dev": "npm run build && node --env-file=../../.env dist/index.js",
-  "start": "npm run build && node --env-file=../../.env dist/index.js",
-  "build": "tsc -p tsconfig.json",
-  "typecheck": "tsc -p tsconfig.json --noEmit"
-},
+    "dev": "npm run build && node --env-file=../../.env dist/index.js",
+    "start": "npm run build && node --env-file=../../.env dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
   "dependencies": {
     "@feliz/agent": "*",
     "@feliz/db": "*",
