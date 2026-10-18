@@ -21,7 +21,7 @@ The bot connects to the iMessage line enabled in your Photon project. On Photon'
 - `apps/bot`: messaging app entry point
 - `apps/ingest`: source ingestion entry point
 - `packages/agent`: conversation turn, citation check, and Gemini answer loop
-- `packages/rag`: local embeddings, scoped hybrid retrieval and source citations
+- `packages/rag`: Gemini embeddings, scoped hybrid retrieval and source citations
 - `packages/routing`: issue category, required facts, and urgency
 - `packages/db`: server-side Supabase corpus reads and writes, plus case storage
 - `supabase/`: corpus and case migration
