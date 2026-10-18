@@ -17,6 +17,13 @@ DEFAULT_START_URLS = [
 ALLOWED_HOSTS = {
     "housing.lacity.gov",
     "selfhelp.courts.ca.gov",
+    "dcba.lacounty.gov",
+    "www.stayhousedla.org",
+    "stayhousedla.org",
+    "lafla.org",
+    "www.lawhelpca.org",
+    "lawhelpca.org",
+    "leginfo.legislature.ca.gov",
 }
 
 REQUEST_TIMEOUT = float(os.getenv("SCRAPER_TIMEOUT", "20"))
