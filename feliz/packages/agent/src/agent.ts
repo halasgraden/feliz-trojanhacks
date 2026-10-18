@@ -19,9 +19,9 @@ import {
   type Requirement,
 } from "@feliz/routing";
 import { checkUrgency } from "@feliz/routing";
-import { answersToAsked, extractFacts, isNo, isYes, proposeField } from "./extract.js";
+import { acceptsOffer, answersToAsked, declinesOffer, extractFacts, isNo, isYes, proposeField } from "./extract.js";
 import type { LanguageModel } from "./gemini.js";
-import { confirmationLine, composeFromChunks, NOT_COVERED, offerFor, presentReply } from "./reply.js";
+import { confirmationLine, composeFromChunks, emailDraft, NOT_COVERED, offerFor, presentReply } from "./reply.js";
 import { nextFacts } from "./state.js";
 import { readReturnedChunk, retrievalQuery, searchScope, toSearchResult } from "./tools/search-law.js";
 import { validateReply } from "./validate.js";
@@ -170,6 +170,37 @@ export async function handleTurn(store: FelizStore, input: TurnInput, deps: Agen
       return Promise.resolve(readReturnedChunk(returned, chunkId, scope));
     },
   };
+
+  const previousAssistant = [...events].reverse().find((event) => event.role === "assistant")?.body ?? "";
+  const offeredDraft = /want me to draft/i.test(previousAssistant);
+  if (offeredDraft && acceptsOffer(text)) {
+    const found = await tools.search(record.category.replaceAll("_", " "));
+    const email = emailDraft(record.category, record.facts, found.chunks);
+    const presented = presentReply(email, { first, urgent: urgency.level === "urgent", referrals: [] });
+    const citations = safeCitations(email, found.chunks);
+    baseTrace.legalSearches = found.queries;
+    baseTrace.chunkIds = found.chunks.map((chunk) => chunk.id);
+    baseTrace.retrieved = found.chunks.map((chunk) => ({
+      id: chunk.id,
+      publisher: chunk.publisher,
+      title: chunk.title,
+      url: chunk.url,
+      body: chunk.body,
+    }));
+    baseTrace.model = "draft";
+    baseTrace.retrieval = found.retrieval;
+    baseTrace.relevance = found.relevance;
+    baseTrace.warnings = found.warnings;
+    baseTrace.queryTruncated = found.queryTruncated;
+    baseTrace.factsAfter = record.facts;
+    await finish(store, record, presented.reply, now, baseTrace);
+    return { caseId: record.id, reply: presented.reply, texts: presented.texts, citations, followUps: [], confirmations: [] };
+  }
+  if (offeredDraft && declinesOffer(text)) {
+    const presented = presentReply("Okay. Ask me when you want that email.", { first, urgent: false, referrals: [] });
+    await finish(store, record, presented.reply, now, baseTrace);
+    return { caseId: record.id, reply: presented.reply, texts: presented.texts, citations: [], followUps: [], confirmations: [] };
+  }
 
   let answered;
   try {

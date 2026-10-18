@@ -8,6 +8,33 @@ export const NOT_COVERED = "I don't have a document that covers this.";
 const URGENT_LINE =
   "This sounds urgent. If you're locked out or your utilities were shut off, get eviction help before you spend time writing a letter.";
 
+/** The email the renter asked for, grounded in the chunks returned on this turn. */
+export function emailDraft(category: string, facts: CaseFacts, chunks: LegalChunk[]): string {
+  const ask = draftAsk(category, facts);
+  const chunk = chunks.find((item) => !isPageChrome(item.body));
+  if (!chunk) return `Read this before you send it.\n\n${ask}`;
+  let source = "";
+  try {
+    source = sourceLine(chunk);
+  } catch {
+    source = "";
+  }
+  const rule = shorten(chunk.body);
+  const letter = source ? `${ask} ${rule}\n${source}` : `${ask} ${rule}`;
+  return `Read this before you send it.\n\n${letter}`;
+}
+
+function draftAsk(category: string, facts: CaseFacts): string {
+  if (category === "security_deposit") {
+    const amount = typeof facts.amountWithheld === "number" ? `the $${facts.amountWithheld}` : "the deposit";
+    const when = facts.moveOutDate ? `I moved out on ${facts.moveOutDate}. ` : "";
+    return `${when}Please return ${amount} and send a written list of what you kept and why.`;
+  }
+  if (category === "eviction") return "Please let me back in. A lockout has to go through court.";
+  if (category === "rent_increase") return "Which rent rule covers this place? Please send the written notice.";
+  return "Please reply in writing about what we discussed.";
+}
+
 export function offerFor(category: string, facts: CaseFacts): string {
   if (category === "security_deposit") {
     const amount = typeof facts.amountWithheld === "number" ? `the $${facts.amountWithheld} and ` : "";

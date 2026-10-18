@@ -56,6 +56,16 @@ export function isNo(text: string): boolean {
   return /^(no|nope|not yet|incorrect)\b/i.test(text.trim());
 }
 
+/** A short yes to the previous "Want me to draft..." offer. */
+export function acceptsOffer(text: string): boolean {
+  return /^(yes|yeah|yep|yup|sure|ok|okay|please|do it|go ahead)(?:\s+please)?[.! ]*$/i.test(text.trim());
+}
+
+/** A short no to that same offer. */
+export function declinesOffer(text: string): boolean {
+  return /^(no|nope|nah)(?:\s+thanks)?[.! ]*$|^not now[.! ]*$|^no thanks[.! ]*$/i.test(text.trim());
+}
+
 /** Read a reply to questions already asked. Narrative extraction misses "No" and "$800". */
 export function answersToAsked(message: string, asked: readonly string[]): CaseFacts {
   const facts: CaseFacts = {};

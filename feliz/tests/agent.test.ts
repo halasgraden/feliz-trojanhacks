@@ -139,6 +139,22 @@ test("a short answer to both deposit questions is kept", async () => {
   expect(second.reply).toContain("21 days");
 });
 
+test("yes to the draft offer writes the email", async () => {
+  const store = createMemoryStore();
+  await store.insertLegalChunk(DEPOSIT);
+  const account = await store.upsertAccount("+13105550106");
+  const record = await store.createCase(account.id);
+  const deps = { model: new GroundedModel(), retrieve: fakeRetrieve([DEPOSIT], []), now: NOW };
+  const first = await handleTurn(store, { accountId: account.id, caseId: record.id, message: DEPOSIT_STORY }, deps);
+  expect(first.texts.at(-1)).toContain("Want me to draft a short email");
+  const second = await handleTurn(store, { accountId: account.id, caseId: record.id, message: "Yes please" }, deps);
+  expect(second.reply).toContain("Read this before you send it.");
+  expect(second.reply).toContain("$800");
+  expect(second.reply).toContain("written list of what you kept");
+  expect(second.reply).toContain("https://housing.lacity.gov/residents/security-deposits");
+  expect(second.reply).not.toContain("Want me to draft");
+});
+
 test("an unincorporated renter can see a county-only page", async () => {
   const store = createMemoryStore();
   await store.insertLegalChunk(COUNTY_ONLY);
