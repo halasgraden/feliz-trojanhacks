@@ -12,6 +12,7 @@
   ],
   "scripts": {
     "dev": "npm run dev -w @feliz/bot",
+    "start": "npm run start -w @feliz/bot",
     "build": "npm run build -w @feliz/db -w @feliz/routing -w @feliz/rag -w @feliz/agent -w @feliz/ingest -w @feliz/bot",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run"
