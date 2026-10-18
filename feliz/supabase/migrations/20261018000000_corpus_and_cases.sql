@@ -7,7 +7,7 @@
 
 create extension if not exists vector;
 
-create table legal_sources (
+create table if not exists legal_sources (
   document_id text primary key,
   source_url text not null,
   publisher text not null,
@@ -19,7 +19,7 @@ create table legal_sources (
   metadata jsonb not null default '{}'::jsonb
 );
 
-create table legal_chunks (
+create table if not exists legal_chunks (
   id text primary key,
   document_id text not null references legal_sources (document_id) on delete cascade,
   chunk_index integer not null,
@@ -37,18 +37,18 @@ create table legal_chunks (
   embedding_model text
 );
 
-create index legal_chunks_document on legal_chunks (document_id);
-create index legal_chunks_topics on legal_chunks using gin (topics);
-create index legal_chunks_body on legal_chunks using gin (to_tsvector('english', body));
+create index if not exists legal_chunks_document on legal_chunks (document_id);
+create index if not exists legal_chunks_topics on legal_chunks using gin (topics);
+create index if not exists legal_chunks_body on legal_chunks using gin (to_tsvector('english', body));
 
-create table accounts (
+create table if not exists accounts (
   id text primary key default gen_random_uuid()::text,
   auth_user_id uuid unique,
   phone text unique not null,
   created_at timestamptz not null default now()
 );
 
-create table cases (
+create table if not exists cases (
   id text primary key,
   account_id text not null references accounts (id) on delete cascade,
   category text not null default 'unknown',
@@ -61,9 +61,9 @@ create table cases (
   updated_at timestamptz not null default now()
 );
 
-create index cases_account on cases (account_id, updated_at desc);
+create index if not exists cases_account on cases (account_id, updated_at desc);
 
-create table case_files (
+create table if not exists case_files (
   id text primary key,
   case_id text not null references cases (id) on delete cascade,
   account_id text not null references accounts (id) on delete cascade,
@@ -72,7 +72,7 @@ create table case_files (
   extracted_text text not null default ''
 );
 
-create table case_chunks (
+create table if not exists case_chunks (
   id text primary key,
   case_id text not null references cases (id) on delete cascade,
   account_id text not null references accounts (id) on delete cascade,
@@ -83,9 +83,9 @@ create table case_chunks (
   embedding vector(768)
 );
 
-create index case_chunks_owner on case_chunks (case_id, account_id);
+create index if not exists case_chunks_owner on case_chunks (case_id, account_id);
 
-create table case_events (
+create table if not exists case_events (
   id text primary key,
   case_id text not null references cases (id) on delete cascade,
   account_id text not null references accounts (id) on delete cascade,
@@ -94,7 +94,7 @@ create table case_events (
   created_at timestamptz not null default now()
 );
 
-create table traces (
+create table if not exists traces (
   id text primary key,
   case_id text not null references cases (id) on delete cascade,
   account_id text not null references accounts (id) on delete cascade,
@@ -102,7 +102,7 @@ create table traces (
   payload jsonb not null
 );
 
-create table housing_resources (
+create table if not exists housing_resources (
   id text primary key,
   name text not null,
   url text not null,
@@ -117,7 +117,8 @@ insert into housing_resources (id, name, url, state, county, city, disputes, not
   ('la-housing-department', 'Los Angeles Housing Department', 'https://housing.lacity.gov/', 'CA', 'Los Angeles', 'Los Angeles', array['rent_increase', 'eviction'], 'City of Los Angeles housing agency. A Los Angeles County address outside the city is a different jurisdiction.'),
   ('la-county-dcba', 'Los Angeles County Department of Consumer and Business Affairs', 'https://dcba.lacounty.gov/', 'CA', 'Los Angeles', null, array['security_deposit', 'eviction', 'rent_increase'], 'County consumer and landlord-tenant information.'),
   ('stay-housed-la', 'Stay Housed LA', 'https://www.stayhousedla.org/', 'CA', 'Los Angeles', null, array['eviction'], 'Eviction help for Los Angeles County renters. Confirm eligibility on their site.'),
-  ('lafla', 'Legal Aid Foundation of Los Angeles', 'https://lafla.org/', 'CA', 'Los Angeles', null, array['security_deposit', 'eviction', 'rent_increase'], 'Legal aid. LAFLA decides whether it can take a matter.');
+  ('lafla', 'Legal Aid Foundation of Los Angeles', 'https://lafla.org/', 'CA', 'Los Angeles', null, array['security_deposit', 'eviction', 'rent_increase'], 'Legal aid. LAFLA decides whether it can take a matter.')
+on conflict (id) do nothing;
 
 alter table legal_sources enable row level security;
 alter table legal_chunks enable row level security;
