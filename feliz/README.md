@@ -39,7 +39,7 @@ npm test           # run Vitest
 
 Workspace packages use the `@feliz/*` scope and can be imported through npm workspace links as their implementations are added.
 
-Without Photon credentials, `npm run dev` and `npm run start` load the agent and print a setup reminder. With valid credentials and iMessage enabled in the Photon project, each text message is one agent turn. `GEMINI_API_KEY` embeds passages and questions with `gemini-embedding-001` and, when set, drafts the answer. Leave it unset and search uses keywords only.
+Without Photon credentials, `npm run dev` and `npm run start` load the agent and print a setup reminder. With valid credentials and iMessage enabled in the Photon project, each text message is one agent turn. Passages and questions are embedded with `gemini-embedding-001`, through a Google Cloud service account (`GOOGLE_APPLICATION_CREDENTIALS`, via Vertex AI) or `GEMINI_API_KEY`. `GEMINI_API_KEY`, when set and funded, also drafts the answer. With neither, search uses keywords only.
 
 Apply `supabase/migrations/20261018000000_corpus_and_cases.sql` before the first ingest. `legal_sources.metadata.tags` must be an object or retrieval holds the page out. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for a shared corpus. Without them the bot keeps cases in memory and has nothing to cite until chunks are inserted.
 
@@ -73,9 +73,10 @@ See [the local RAG handoff](docs/local-rag.md) for the API and scope/citation ru
 ```sh
 npm run build
 npm test
-npm run rag:check  # real local CPU embeddings of all 52 scraped pages, no DB or API keys
+npm run rag:check  # real Gemini embeddings of all 52 scraped pages (needs credentials), no DB writes
 npm run rag:query -- "When must my security deposit be returned?"
 ```
 
-The model downloads once and is reused. `retrieve()` returns evidence passages and citations.
-The agent calls it with a short query, not the whole transcript (512-token model limit).
+Embeddings need `GOOGLE_APPLICATION_CREDENTIALS` (service account key file path) or `GEMINI_API_KEY`
+in `feliz/.env`; see docs/local-rag.md. `retrieve()` returns evidence passages and citations.
+The agent calls it with a short query; a longer question keeps its newest ~2,048 tokens.
