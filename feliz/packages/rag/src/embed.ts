@@ -1,3 +1,5 @@
+import { createSign } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /** Stored on each chunk. Vectors from any other model, including local E5, are not scored. */
@@ -32,7 +34,13 @@ export async function embedQuery(query: string, opts: EmbedOptions = {}): Promis
   return vector;
 }
 
-/** Serialized Gemini batch calls. A missing key fails this call; retrieve() then uses keywords. */
+/**
+ * Serialized embedding calls, by one of two routes to the same model:
+ * - Vertex AI with a Google Cloud service account, when GOOGLE_APPLICATION_CREDENTIALS
+ *   points at its JSON key file (one text per request; the project needs billing enabled).
+ * - The Gemini API with GEMINI_API_KEY otherwise (batches of 100).
+ * Missing credentials fail this call; retrieve() then uses keywords.
+ */
 export function embedTexts(texts: string[], task: EmbeddingTask, opts: EmbedOptions = {}): Promise<number[][]> {
   if (!texts.length) return Promise.resolve([]);
   if (texts.some((text) => !text.trim())) return Promise.reject(new Error("Cannot embed empty text"));
@@ -51,28 +59,38 @@ export function embedTexts(texts: string[], task: EmbeddingTask, opts: EmbedOpti
   return run;
 }
 
+/** Which route embedTexts will use, for logs and traces. */
+export function embeddingRoute(): "vertex" | "gemini" | "none" {
+  loadEnv();
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) return "vertex";
+  return process.env.GEMINI_API_KEY ? "gemini" : "none";
+}
+
 async function embedBatch(texts: string[], task: EmbeddingTask, opts: EmbedOptions): Promise<number[][]> {
-  const apiKey = geminiKey();
+  const route = embeddingRoute();
+  if (route === "none") {
+    throw new Error("Set GOOGLE_APPLICATION_CREDENTIALS (service account key file) or GEMINI_API_KEY to embed with gemini-embedding-001");
+  }
+  return route === "vertex" ? embedVertex(texts, task, opts) : embedGemini(texts, task, opts);
+}
+
+async function embedGemini(texts: string[], task: EmbeddingTask, opts: EmbedOptions): Promise<number[][]> {
+  const apiKey = process.env.GEMINI_API_KEY!;
   const vectors: number[][] = [];
   for (let start = 0; start < texts.length; start += BATCH) {
     const batch = texts.slice(start, start + BATCH);
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
+    const body = await postJson<{ embeddings?: { values?: number[] }[] }>(
+      `https://generativelanguage.googleapis.com/v1beta/models/${EMBEDDING_MODEL}:batchEmbedContents`,
+      { "x-goog-api-key": apiKey },
+      {
         requests: batch.map((text) => ({
           model: `models/${EMBEDDING_MODEL}`,
           content: { parts: [{ text }] },
           taskType: task,
           outputDimensionality: EMBEDDING_DIMENSIONS,
         })),
-      }),
-    });
-    const body = (await response.json().catch(() => ({}))) as {
-      error?: { message?: string };
-      embeddings?: { values?: number[] }[];
-    };
-    if (!response.ok) throw new Error(body.error?.message || `Gemini embedding failed (${response.status}).`);
+      },
+    );
     const rows = body.embeddings ?? [];
     if (rows.length !== batch.length) throw new Error("Gemini embedding batch count mismatch");
     for (const row of rows) vectors.push(unitVector(row.values));
@@ -81,17 +99,112 @@ async function embedBatch(texts: string[], task: EmbeddingTask, opts: EmbedOptio
   return vectors;
 }
 
-function geminiKey(): string {
-  if (!process.env.GEMINI_API_KEY) {
-    try {
-      process.loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
-    } catch {
-      /* the key may already be in the environment */
+const VERTEX_CONCURRENCY = 4;
+
+/** Vertex accepts one text per request for gemini-embedding-001; a few run at once, kept in input order. */
+async function embedVertex(texts: string[], task: EmbeddingTask, opts: EmbedOptions): Promise<number[][]> {
+  const account = serviceAccount();
+  const location = process.env.VERTEX_LOCATION || "us-central1";
+  const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${account.project_id}/locations/${location}/publishers/google/models/${EMBEDDING_MODEL}:predict`;
+  const vectors: number[][] = new Array(texts.length);
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < texts.length) {
+      const i = next++;
+      const body = await postJson<{ predictions?: { embeddings?: { values?: number[] } }[] }>(
+        url,
+        { authorization: `Bearer ${await accessToken(account)}` },
+        { instances: [{ content: texts[i], task_type: task }], parameters: { outputDimensionality: EMBEDDING_DIMENSIONS } },
+      );
+      vectors[i] = unitVector(body.predictions?.[0]?.embeddings?.values);
+      opts.onProgress?.(++done, texts.length);
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(VERTEX_CONCURRENCY, texts.length) }, worker));
+  return vectors;
+}
+
+interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+  project_id: string;
+  token_uri: string;
+}
+
+let account: { path: string; value: ServiceAccount } | undefined;
+let token: { value: Promise<string>; expires: number } | undefined;
+
+function serviceAccount(): ServiceAccount {
+  const path = process.env.GOOGLE_APPLICATION_CREDENTIALS!;
+  if (account?.path !== path) {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<ServiceAccount> & { type?: string };
+    if (parsed.type !== "service_account" || !parsed.client_email || !parsed.private_key || !parsed.project_id) {
+      throw new Error(`GOOGLE_APPLICATION_CREDENTIALS must point at a service account JSON key (${path})`);
+    }
+    account = { path, value: { token_uri: "https://oauth2.googleapis.com/token", ...parsed } as ServiceAccount };
+    token = undefined;
   }
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY must be set to embed with gemini-embedding-001");
-  return key;
+  return account.value;
+}
+
+/**
+ * OAuth access token for the service account (signed JWT exchange), reused until shortly before
+ * expiry. Concurrent callers share one in-flight sign-in.
+ */
+function accessToken(sa: ServiceAccount): Promise<string> {
+  if (token && Date.now() < token.expires) return token.value;
+  const value = signIn(sa);
+  token = { value, expires: Date.now() + 50 * 60_000 };
+  value.catch(() => { if (token?.value === value) token = undefined; });
+  return value;
+}
+
+async function signIn(sa: ServiceAccount): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const b64 = (v: object) => Buffer.from(JSON.stringify(v)).toString("base64url");
+  const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+    aud: sa.token_uri,
+    iat: now,
+    exp: now + 3600,
+  })}`;
+  const assertion = `${unsigned}.${createSign("RSA-SHA256").update(unsigned).sign(sa.private_key, "base64url")}`;
+  const res = await fetch(sa.token_uri, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error_description?: string };
+  if (!res.ok || !json.access_token) throw new Error(`Service account sign-in failed: ${json.error_description ?? res.status}`);
+  return json.access_token;
+}
+
+const MAX_RETRIES = 5;
+
+/** POST JSON, retrying rate limits and brief outages with backoff; other errors fail at once. */
+async function postJson<T>(url: string, headers: Record<string, string>, payload: unknown): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(payload) });
+    const body = (await res.json().catch(() => ({}))) as T & { error?: { message?: string } };
+    if (res.ok) return body;
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt >= MAX_RETRIES) {
+      throw new Error(body.error?.message || `Embedding request failed (${res.status}).`);
+    }
+    const wait = Number(process.env.FELIZ_EMBED_RETRY_MS ?? 2000) * 2 ** attempt;
+    await new Promise((r) => setTimeout(r, wait));
+  }
+}
+
+function loadEnv() {
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS) return;
+  try {
+    process.loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
+  } catch {
+    /* credentials may already be in the environment */
+  }
 }
 
 /** gemini-embedding-001 is 3,072-wide. A 768-wide slice must be normalized before cosine similarity. */

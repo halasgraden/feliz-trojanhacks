@@ -70,3 +70,11 @@ describe("retrieve()", () => {
     expect(r.warnings[0]).toContain("model unavailable");
   });
 });
+
+test("keyword matching uses whole words (with endings), not fragments inside words", () => {
+  const parent = chunk("parent", { body: "A parent may sign the paragraph for the child.", title: "Family", heading: "Forms", embedding: null, embeddingModel: null });
+  const renters = chunk("renters", { body: "Renters receive deposits back within 21 days.", title: "Deposits", heading: "Returns", embedding: null, embeddingModel: null });
+  const ids = (q: string) => rankLegalChunks([parent, renters], q, { state: "CA" }).map((c) => c.id);
+  expect(ids("rent deposit")).toEqual(["renters"]);  // "rent" no longer hits "parent"
+  expect(ids("para una demanda")).toEqual([]);         // Spanish filler no longer hits "paragraph"
+});

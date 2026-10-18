@@ -6,8 +6,21 @@ export interface SearchOptions {
   unincorporated?: boolean; topic?: Topic | null; limit?: number; queryEmbedding?: number[];
 }
 export interface RankedChunk extends LegalChunk { score: number; similarity: number | null }
-const STOP = new Set("the a an is are was were my me i to of in on for and or it this that can do does with from have has landlord tenant rental apartment".split(" "));
-const terms = (s: string) => [...new Set(s.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])].filter((s) => !STOP.has(s));
+// Common words that say nothing about the legal issue, in English and Spanish (renters write in both).
+const STOP = new Set((
+  "the a an is are was were my me i to of in on for and or it this that can do does with from have has " +
+  "landlord tenant rental apartment how what when why who will would should could did not " +
+  "que para por una uno los las del con como cuando cuanto cuánto tengo tiene mis mi sus su " +
+  "esta este esto pero sin sobre hay ser fue son muy más mas casero arrendador dueño"
+).split(" "));
+const words = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+const terms = (s: string) => [...new Set(words(s).filter((w) => w.length >= 3 && !STOP.has(w)))];
+/**
+ * A term matches a word it begins ("deposit" ~ "deposits", "rent" ~ "renters"), never a fragment
+ * inside one: substring matching let Spanish "para" match "paragraph" and English "rent" match
+ * "parent", which pushed the right passage from #2 to #10 for a Spanish eviction question.
+ */
+const matchesTerm = (text: string[], term: string) => text.some((w) => w.startsWith(term));
 
 /** "los angeles ", "Los  Angeles" and "LOS ANGELES" are the same place. */
 const place = (s: string | null | undefined) => (s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -28,8 +41,8 @@ export function rankLegalChunks(chunks: LegalChunk[], query: string, opts: Searc
   const queryTerms = terms(query);
   const candidates = chunks.filter((c) => chunkApplies(c, opts));
   const lexical = new Map(candidates.map((c) => {
-    const text = `${c.title} ${c.heading} ${c.body}`.toLowerCase();
-    return [c.id, queryTerms.reduce((n, term) => n + Number(text.includes(term)), 0) / Math.max(1, queryTerms.length)];
+    const text = words(`${c.title} ${c.heading} ${c.body}`);
+    return [c.id, queryTerms.reduce((n, term) => n + Number(matchesTerm(text, term)), 0) / Math.max(1, queryTerms.length)];
   }));
   const similarity = new Map<string, number>();
   if (opts.queryEmbedding) {

@@ -46,10 +46,11 @@ const TOPIC_EXAMPLES = [
 ];
 /**
  * Strong if the question resembles a renter question, or a passage matches it closely.
- * These cutoffs were measured on multilingual-e5-base. They are not calibrated for
- * gemini-embedding-001, and a weak score never drops a passage.
+ * Measured on gemini-embedding-001 (see docs/local-rag-test-report.md): renter questions scored
+ * 0.681-0.773 against their best passage and off-topic ones 0.527-0.616, so the passage cutoff
+ * sits between them. Re-measure if the embedding model changes. A weak score never drops a passage.
  */
-export const RELEVANCE = { topic: 0.86, passage: 0.845 } as const;
+export const RELEVANCE = { topic: 0.66, passage: 0.65 } as const;
 
 let topicVectors: Promise<number[][]> | undefined;
 let corpus: { at: number; chunks: Promise<LegalChunk[]> } | undefined;

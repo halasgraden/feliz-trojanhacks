@@ -71,10 +71,11 @@ See [the local RAG handoff](docs/local-rag.md) for the API and scope/citation ru
 ```sh
 npm run build
 npm test
-npm run rag:check  # real local CPU embeddings of all 52 scraped pages, no DB or API keys
+npm run rag:check  # real Gemini embeddings of all 52 scraped pages (needs credentials), no DB writes
 npm run rag:query -- "When must my security deposit be returned?"
 ```
 
-The model downloads once and is reused. `retrieve()` returns evidence passages and citations;
-the agent teammate still implements answer generation, urgency, and conversation state.
-Use a short current query, not the full transcript (512-token model limit).
+Embeddings need `GOOGLE_APPLICATION_CREDENTIALS` (service account key file path) or `GEMINI_API_KEY`
+in `feliz/.env`; see docs/local-rag.md. `retrieve()` returns evidence passages and citations;
+the agent still implements answer generation, urgency, and conversation state.
+A long question keeps its newest ~2,048 tokens; a short current question works best.
