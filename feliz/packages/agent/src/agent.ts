@@ -21,7 +21,7 @@ import {
 import { checkUrgency } from "@feliz/routing";
 import { extractFacts, isNo, isYes, proposeField } from "./extract.js";
 import type { LanguageModel } from "./gemini.js";
-import { confirmationLine, composeFromChunks, NOT_COVERED, presentReply } from "./reply.js";
+import { confirmationLine, composeFromChunks, NOT_COVERED, offerFor, presentReply } from "./reply.js";
 import { nextFacts } from "./state.js";
 import { readReturnedChunk, retrievalQuery, searchScope, toSearchResult } from "./tools/search-law.js";
 import { validateReply } from "./validate.js";
@@ -38,6 +38,8 @@ export type Citation = {
 export type UserReply = {
   caseId: string;
   reply: string;
+  /** Separate texts to send, in order. The disclaimer is only the first text of a new case. */
+  texts: string[];
   citations: Citation[];
   followUps: string[];
   confirmations: PendingFact[];
@@ -90,6 +92,7 @@ export async function handleTurn(store: FelizStore, input: TurnInput, deps: Agen
   }
 
   const events = await store.listEvents(record.id, record.accountId);
+  const first = !events.some((event) => event.role === "assistant");
   const transcript = events
     .filter((event) => event.role === "user")
     .map((event) => event.body)
@@ -148,12 +151,12 @@ export async function handleTurn(store: FelizStore, input: TurnInput, deps: Agen
 
   if (shownConfirmations.length || shownQuestions.length) {
     const followUps = shownQuestions.map((field) => questionFor(field));
-    const reply = presentReply(
+    const presented = presentReply(
       [...shownConfirmations.map((item) => confirmationLine(item)), ...followUps].join("\n"),
-      { urgent: urgency.level === "urgent", referrals: [] },
+      { first, urgent: urgency.level === "urgent", referrals: [] },
     );
-    await finish(store, record, reply, now, baseTrace);
-    return { caseId: record.id, reply, citations: [], followUps, confirmations: shownConfirmations };
+    await finish(store, record, presented.reply, now, baseTrace);
+    return { caseId: record.id, reply: presented.reply, texts: presented.texts, citations: [], followUps, confirmations: shownConfirmations };
   }
 
   const scope = searchScope(record.facts, record.category);
@@ -199,8 +202,15 @@ export async function handleTurn(store: FelizStore, input: TurnInput, deps: Agen
   }
 
   const referrals = matchReferrals(await store.referrals(), record.facts, record.category);
-  const reply = presentReply(draft, { urgent: urgency.level === "urgent", referrals });
-  const citations = safeCitations(reply, answered.chunks);
+  const presented = presentReply(draft, {
+    first,
+    urgent: urgency.level === "urgent",
+    referrals,
+    offer: /\b(draft|email|letter)\b/i.test(userText)
+      ? "Want me to change anything in that draft?"
+      : offerFor(record.category, record.facts),
+  });
+  const citations = safeCitations(draft, answered.chunks);
   baseTrace.legalSearches = answered.searches;
   baseTrace.chunkIds = answered.chunks.map((chunk) => chunk.id);
   baseTrace.retrieved = answered.chunks.map((chunk) => ({
@@ -217,8 +227,8 @@ export async function handleTurn(store: FelizStore, input: TurnInput, deps: Agen
   baseTrace.queryTruncated = answered.queryTruncated;
   baseTrace.validationProblems = [...baseTrace.validationProblems, ...problems];
   baseTrace.factsAfter = record.facts;
-  await finish(store, record, reply, now, baseTrace);
-  return { caseId: record.id, reply, citations, followUps: [], confirmations: [] };
+  await finish(store, record, presented.reply, now, baseTrace);
+  return { caseId: record.id, reply: presented.reply, texts: presented.texts, citations, followUps: [], confirmations: [] };
 }
 
 export async function readDeveloperTrace(store: FelizStore, caseId: string): Promise<TraceRecord[]> {

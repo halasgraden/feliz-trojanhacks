@@ -35,6 +35,15 @@ test("citation matching accepts only evidence from the current turn", () => {
   const c = chunk("a");
   expect(citationsInReply(`A quote\n${sourceLine(c)}`, [c])[0].id).toBe("a");
   expect(() => citationsInReply(sourceLine(chunk("b")), [c])).toThrow("not returned");
+  const sibling = chunk("a2", {
+    url: c.url,
+    title: c.title,
+    heading: c.heading,
+    publisher: c.publisher,
+    fetchedAt: c.fetchedAt,
+    body: "Receipts are required above $125.",
+  });
+  expect(citationsInReply(sourceLine(c), [c, sibling]).map((item) => item.id).sort()).toEqual(["a", "a2"]);
 });
 
 test("place names match regardless of case and spacing", () => {

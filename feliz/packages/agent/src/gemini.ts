@@ -171,7 +171,13 @@ export class GeminiModel implements LanguageModel {
 }
 
 function userPrompt(input: AnswerInput): string {
-  return [`Confirmed facts: ${JSON.stringify(input.facts)}`, "", "Renter:", input.userText].join("\n");
+  return [
+    `Confirmed facts: ${JSON.stringify(input.facts)}`,
+    "Use these facts in the first sentence. Do not answer with a list of every rule you found.",
+    "",
+    "Renter:",
+    input.userText,
+  ].join("\n");
 }
 
 function visibleText(parts: Record<string, unknown>[]): string {
