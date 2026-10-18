@@ -113,3 +113,31 @@ test("authority breaks ties but never outranks a closer match", async () => {
   const { rows } = await db.query<SearchRow>("select * from hybrid_search('zzz', $1::vector, 5, null)", [vec(4)]);
   expect(rows[0].id).toBe("lockout");
 });
+
+test("HNSW index serves filtered searches without dropping results", async () => {
+  // Separate database: 400 random vectors, only 5% in city_of_la, the case where
+  // post-filtered HNSW used to return far fewer rows than asked for.
+  const big = await PGlite.create({ extensions: { vector } });
+  await big.exec(await readFile("supabase/migrations/20261017000000_rag_documents.sql", "utf8"));
+  const rand = () => {
+    const v = Array.from({ length: DIM }, () => Math.random() - 0.5);
+    const n = Math.hypot(...v);
+    return `[${v.map((x) => x / n).join(",")}]`;
+  };
+  for (let i = 0; i < 400; i++) {
+    await big.query(
+      `insert into rag_documents (id, source, source_name, url, content, jurisdictions, authority, embedding)
+       values ($1, 's', 'S', $1, 'text', $2, 2, $3::vector)`,
+      [`d${i}`, [i % 20 === 0 ? "city_of_la" : "la_county"], rand()],
+    );
+  }
+  await big.exec("analyze rag_documents; set enable_seqscan = off"); // force the index, as on a large table
+  const q = rand();
+  const plan = await big.query<Record<string, string>>(
+    "explain select id from rag_documents order by embedding <=> $1::vector limit 20", [q]);
+  expect(plan.rows.map((r) => Object.values(r)[0]).join("\n")).toContain("rag_documents_embedding_idx");
+  const { rows } = await big.query<{ n: number }>(
+    "select count(*)::int as n from hybrid_search('zzz', $1::vector, 15, '{city_of_la}')", [q]);
+  expect(rows[0].n).toBe(15);
+  await big.close();
+});

@@ -49,6 +49,11 @@ returns table (
   score         double precision
 )
 language sql stable
+-- HNSW applies the jurisdiction filter after collecting ef_search candidates, so a
+-- filtered query could silently return 3 rows instead of 30. Iterative scan
+-- (pgvector >= 0.8) keeps searching until enough rows pass the filter.
+set hnsw.iterative_scan = relaxed_order
+set hnsw.ef_search = 100
 as $$
   with q as (
     select to_tsquery('english',
